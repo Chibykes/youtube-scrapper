@@ -82,7 +82,7 @@ export default function CommentScraperPage() {
       </h1>
       <p className="mt-1 text-muted">
         Paste a YouTube video link to collect the usernames of everyone who
-        commented, via the official YouTube Data API.
+        commented. No API key needed.
       </p>
 
       <form
