@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGmailTransporter, sendBulkEmails } from "@/lib/mailer";
 
-// At 1 send/2s plus retry backoff, 200 recipients can take several minutes —
-// give the route enough headroom. If you deploy somewhere with a hard cap
-// below this (e.g. Vercel Hobby), lower MAX_RECIPIENTS instead.
-export const maxDuration = 900;
+// Vercel's Hobby plan hard-caps Serverless Functions at 300s, so this route
+// can't just send an arbitrarily large batch in one call. The client
+// (app/dashboard/send-emails/page.tsx) splits recipients into chunks of
+// MAX_RECIPIENTS and calls this route once per chunk, so each call only
+// needs to fit its own chunk's send time (chunk size * ~2s/send, plus
+// backoff headroom) inside the cap.
+export const maxDuration = 300;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_RECIPIENTS = 200;
+const MAX_RECIPIENTS = 50;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);

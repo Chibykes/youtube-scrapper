@@ -20,6 +20,12 @@ const STORAGE_EMAIL_KEY = "ytscraper:senderEmail";
 const STORAGE_PASSWORD_KEY = "ytscraper:senderPassword";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
 
+// Must match MAX_RECIPIENTS in app/api/send/route.ts. Sending is split into
+// chunks so each /api/send call finishes well inside the 300s Serverless
+// Function cap (Vercel Hobby's limit), instead of one call trying to send
+// the whole list and getting killed mid-batch.
+const CHUNK_SIZE = 50;
+
 export default function SendEmailsPage() {
   const [senderEmail, setSenderEmail] = useState("");
   const [senderPassword, setSenderPassword] = useState("");
@@ -30,6 +36,9 @@ export default function SendEmailsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendResponse | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
   // after mount — reading them in a lazy initializer instead would make the
@@ -71,23 +80,59 @@ export default function SendEmailsPage() {
     e.preventDefault();
     setError(null);
     setResult(null);
+
+    const recipients = Array.from(
+      new Set(
+        emails
+          .split(/[\n,;]+/)
+          .map((r) => r.trim())
+          .filter(Boolean)
+      )
+    );
+    if (recipients.length === 0) return;
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < recipients.length; i += CHUNK_SIZE) {
+      chunks.push(recipients.slice(i, i + CHUNK_SIZE));
+    }
+
     setSending(true);
+    setBatchProgress({ done: 0, total: recipients.length });
+
+    const aggregated: SendResult[] = [];
     try {
-      const res = await fetch("/api/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails, subject, message, senderEmail, senderPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to send emails");
-        return;
+      for (const chunk of chunks) {
+        const res = await fetch("/api/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            emails: chunk.join("\n"),
+            subject,
+            message,
+            senderEmail,
+            senderPassword,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Failed to send emails");
+          break;
+        }
+
+        aggregated.push(...(data as SendResponse).results);
+        setBatchProgress({ done: aggregated.length, total: recipients.length });
+        setResult({
+          total: aggregated.length,
+          succeeded: aggregated.filter((r) => r.success).length,
+          failed: aggregated.filter((r) => !r.success).length,
+          results: aggregated,
+        });
       }
-      setResult(data as SendResponse);
     } catch {
-      setError("Something went wrong. Try again.");
+      setError("Something went wrong partway through sending. Recipients not yet sent to were skipped.");
     } finally {
       setSending(false);
+      setBatchProgress(null);
     }
   }
 
@@ -209,7 +254,11 @@ export default function SendEmailsPage() {
             placeholder={"jane@example.com\njohn@example.com"}
             className="w-full resize-y rounded-lg border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
-          <p className="text-xs text-muted">One per line, or comma-separated.</p>
+          <p className="text-xs text-muted">
+            One per line, or comma-separated. Sent in batches of {CHUNK_SIZE} to
+            stay within hosting limits — results update live as each batch
+            finishes.
+          </p>
         </div>
 
         <div className="space-y-2 p-5">
@@ -253,7 +302,7 @@ export default function SendEmailsPage() {
             className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending
-              ? `Sending to ${recipientCount} recipient${recipientCount === 1 ? "" : "s"}...`
+              ? `Sending... ${batchProgress?.done ?? 0}/${batchProgress?.total ?? recipientCount}`
               : `Send to ${recipientCount || 0} recipient${recipientCount === 1 ? "" : "s"}`}
           </button>
         </div>
