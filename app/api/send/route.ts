@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createGmailTransporter, sendBulkEmails } from "@/lib/mailer";
 
-export const maxDuration = 300;
+// At 1 send/2s plus retry backoff, 200 recipients can take several minutes —
+// give the route enough headroom. If you deploy somewhere with a hard cap
+// below this (e.g. Vercel Hobby), lower MAX_RECIPIENTS instead.
+export const maxDuration = 900;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RECIPIENTS = 200;
