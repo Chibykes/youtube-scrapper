@@ -29,6 +29,34 @@ const tools = [
       />
     ),
   },
+  {
+    href: "/dashboard/email-validator",
+    title: "Username → Email Validator",
+    description:
+      "Turn commenter usernames into guessed Gmail addresses and validate each one with mails.so before you use it.",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M9 12.75 11.25 15 15 9.75M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9Z"
+      />
+    ),
+  },
+  {
+    href: "/dashboard/send-emails",
+    title: "Send Emails",
+    description:
+      "Compose a message and send it over Gmail SMTP to a list of validated recipients using your own app password.",
+    icon: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M6 12 3.269 3.126A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5"
+      />
+    ),
+  },
 ];
 
 export default function DashboardPage() {

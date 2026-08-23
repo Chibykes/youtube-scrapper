@@ -2,6 +2,9 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 
 type CommentAuthor = {
   username: string;
@@ -10,6 +13,7 @@ type CommentAuthor = {
 };
 
 export default function CommentScraperPage() {
+  const router = useRouter();
   const [videoUrl, setVideoUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -66,6 +70,12 @@ export default function CommentScraperPage() {
     a.download = "commenter-usernames.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function sendToEmailValidator() {
+    const usernames = authors.map((a) => a.username).join("\n");
+    sessionStorage.setItem(SESSION_USERNAMES_KEY, usernames);
+    router.push("/dashboard/email-validator");
   }
 
   return (
@@ -131,12 +141,20 @@ export default function CommentScraperPage() {
                 ({meta?.threadsFetched ?? 0} threads scanned)
               </span>
             </h2>
-            <button
-              onClick={downloadCsv}
-              className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
-            >
-              Export CSV
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={downloadCsv}
+                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+              >
+                Export CSV
+              </button>
+              <button
+                onClick={sendToEmailValidator}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+              >
+                Convert to emails
+              </button>
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-border">
