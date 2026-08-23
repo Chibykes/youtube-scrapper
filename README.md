@@ -1,6 +1,6 @@
 # YT Scraper
 
-A dark-mode Next.js dashboard with email/password-gated login and four tools:
+A dark-mode Next.js dashboard, authenticated with [Clerk](https://clerk.com), with four tools:
 
 - **Channel Email Scraper** — paste a list of channel URLs/handles/IDs and it fetches each channel's About page, scanning the visible page content for email addresses.
 - **Comment Username Scraper** — paste a video link and it collects the usernames of everyone who commented, using YouTube's internal (unofficial) web client API via [`youtubei.js`](https://github.com/LuanRT/YouTube.js). No API key required.
@@ -14,12 +14,10 @@ npm install
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local`:
-
-- `APP_EMAIL` — the email used to log into the dashboard (default `admin@example.com`, change this).
-- `APP_PIN` — the password used to log into the dashboard (default `1234`, change this).
-- `SESSION_SECRET` — any long random string, used to sign the login session cookie.
-- `MAILSO_API_KEY` — API key from [mails.so](https://mails.so), used by the Email Validator tool.
+1. Create a free application at [dashboard.clerk.com](https://dashboard.clerk.com).
+2. Copy its **Publishable key** and **Secret key** (API Keys page) into `.env.local` as `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`.
+3. In the Clerk dashboard, enable whichever sign-in methods you want (email/password, Google, GitHub, etc.) under **User & Authentication**.
+4. Set `MAILSO_API_KEY` — API key from [mails.so](https://mails.so), used by the Email Validator tool.
 
 Then run:
 
@@ -27,7 +25,7 @@ Then run:
 npm run dev
 ```
 
-Visit `http://localhost:3000`, log in with your email and password, and use the dashboard.
+Visit `http://localhost:3000`, sign up, and use the dashboard. User accounts, password resets, and sessions are all managed through Clerk — there's nothing else to configure.
 
 ## Notes
 
@@ -35,4 +33,4 @@ Visit `http://localhost:3000`, log in with your email and password, and use the 
 - The comment scraper talks to the same internal endpoints YouTube's own web player uses (not the official, quota-limited Data API), so there's no API key or Google Cloud project to set up. Because it's unofficial and undocumented, YouTube can change it without notice, which could break the tool until `youtubei.js` is updated.
 - The email guess is just `username@gmail.com` (after stripping anything from a hyphen onward) — most guesses won't be real inboxes, which is exactly why they're run through mails.so validation before you can send to them.
 - Sending uses Gmail SMTP via [Nodemailer](https://nodemailer.com/); you'll need a Gmail [App Password](https://myaccount.google.com/apppasswords), not your regular password. The sender address/password are kept in the browser's `localStorage` only, never sent anywhere but your own `/api/send` route.
-- Auth is a single shared email/password suitable for personal/internal use, not multi-user access control. The social sign-in buttons on the login and signup pages are UI-only placeholders, ready to wire up to Clerk later.
+- Auth, user management, and password resets are handled by Clerk. The dashboard and the `/api/scrape/*` and `/api/send` routes are all gated behind a signed-in session via `proxy.ts`.

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Instrument_Sans, Archivo_Black } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+import { clerkAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
 const instrumentSans = Instrument_Sans({
@@ -25,7 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${instrumentSans.variable} ${archivoBlack.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        {children}
+        <ClerkProvider appearance={clerkAppearance}>{children}</ClerkProvider>
       </body>
     </html>
   );

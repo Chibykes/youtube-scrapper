@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { AUTH_COOKIE, getSessionSecret } from "@/lib/auth";
+import { auth } from "@clerk/nextjs/server";
 import Logo from "@/components/Logo";
 
 const features = [
@@ -38,8 +37,8 @@ const commands = [
 ];
 
 export default async function Home() {
-  const cookieStore = await cookies();
-  const isAuthed = cookieStore.get(AUTH_COOKIE)?.value === getSessionSecret();
+  const { userId } = await auth();
+  const isAuthed = !!userId;
   const primaryHref = isAuthed ? "/dashboard" : "/signup";
   const primaryLabel = isAuthed ? "Go to dashboard" : "Get started";
 

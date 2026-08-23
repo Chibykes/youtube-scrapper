@@ -45,7 +45,7 @@ export default function AuthShell({
           <Logo />
         </div>
         <main className="flex flex-1 items-center justify-center px-4 pb-16">
-          <div className="w-full max-w-sm">{children}</div>
+          <div className="w-full max-w-md">{children}</div>
         </main>
         <div className="hidden justify-center pb-8 lg:flex">
           <Link

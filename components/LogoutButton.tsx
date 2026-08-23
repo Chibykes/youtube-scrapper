@@ -1,19 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useClerk } from "@clerk/nextjs";
 
 export default function LogoutButton() {
-  const router = useRouter();
-
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
-  }
+  const { signOut } = useClerk();
 
   return (
     <button
-      onClick={handleLogout}
+      onClick={() => signOut({ redirectUrl: "/login" })}
       className="border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent hover:text-foreground"
     >
       Log out
