@@ -145,7 +145,7 @@ export default function SendEmailsPage() {
         ← Back to dashboard
       </Link>
 
-      <h1 className="text-2xl font-semibold text-foreground">Send Emails</h1>
+      <h1 className="font-display text-3xl text-foreground">Send Emails</h1>
       <p className="mt-1 text-muted">
         Send a broadcast over Gmail SMTP to a list of recipients — usually the
         validated emails from the Email Validator tool.
@@ -153,12 +153,12 @@ export default function SendEmailsPage() {
 
       <form
         onSubmit={handleSend}
-        className="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface"
+        className="mt-6 divide-y divide-border border border-border bg-surface"
       >
         <div className="space-y-4 p-5">
           <h2 className="text-sm font-medium text-foreground">Sender</h2>
 
-          <div className="space-y-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-3.5">
+          <div className="space-y-2 border border-amber-400/30 bg-amber-400/[0.06] p-3.5">
             <p className="text-xs leading-relaxed text-amber-300">
               <strong className="font-medium">This isn&apos;t your regular Gmail password.</strong>{" "}
               Google requires a 16-character <strong className="font-medium">App Password</strong>{" "}
@@ -203,7 +203,7 @@ export default function SendEmailsPage() {
               onChange={(e) => setSenderEmail(e.target.value)}
               placeholder="you@gmail.com"
               autoComplete="username"
-              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
+              className="w-full border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
             />
           </div>
 
@@ -220,7 +220,7 @@ export default function SendEmailsPage() {
                 onChange={(e) => setSenderPassword(e.target.value)}
                 placeholder="xxxx xxxx xxxx xxxx"
                 autoComplete="current-password"
-                className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
+                className="w-full border border-border bg-surface-2 px-3 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
               />
               <button
                 type="button"
@@ -252,7 +252,7 @@ export default function SendEmailsPage() {
             value={emails}
             onChange={(e) => setEmails(e.target.value)}
             placeholder={"jane@example.com\njohn@example.com"}
-            className="w-full resize-y rounded-lg border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-foreground outline-none focus:border-accent"
+            className="w-full resize-y border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
           <p className="text-xs text-muted">
             One per line, or comma-separated. Sent in batches of {CHUNK_SIZE} to
@@ -271,7 +271,7 @@ export default function SendEmailsPage() {
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="(optional)"
-            className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
+            className="w-full border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
           />
         </div>
 
@@ -286,7 +286,7 @@ export default function SendEmailsPage() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Write your message..."
-            className="w-full resize-y rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
+            className="w-full resize-y border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent"
           />
         </div>
 
@@ -299,7 +299,7 @@ export default function SendEmailsPage() {
           <button
             type="submit"
             disabled={sending || recipientCount === 0 || !message.trim()}
-            className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending
               ? `Sending... ${batchProgress?.done ?? 0}/${batchProgress?.total ?? recipientCount}`
@@ -309,7 +309,7 @@ export default function SendEmailsPage() {
       </form>
 
       {result && (
-        <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-surface">
+        <div className="mt-8 border border-border bg-surface">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <h2 className="text-sm font-medium text-foreground">
               {result.failed === 0
@@ -317,7 +317,7 @@ export default function SendEmailsPage() {
                 : `${result.succeeded} sent, ${result.failed} failed`}
             </h2>
             <span
-              className={`rounded-full border px-2 py-0.5 text-xs ${
+              className={`border px-2 py-0.5 text-xs ${
                 result.failed === 0
                   ? "border-success/30 bg-success/10 text-success"
                   : "border-amber-400/30 bg-amber-400/10 text-amber-400"
@@ -337,12 +337,12 @@ export default function SendEmailsPage() {
                 </span>
                 {r.success ? (
                   <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                    <span className="h-1.5 w-1.5 bg-success" />
                     Sent
                   </span>
                 ) : (
                   <span className="flex shrink-0 items-center gap-1.5 text-right text-danger">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
+                    <span className="h-1.5 w-1.5 shrink-0 bg-danger" />
                     Failed{r.error ? `: ${r.error}` : ""}
                   </span>
                 )}

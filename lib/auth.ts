@@ -1,5 +1,9 @@
 export const AUTH_COOKIE = "yt_session";
 
+export function getAppEmail(): string {
+  return process.env.APP_EMAIL ?? "admin@example.com";
+}
+
 export function getAppPin(): string {
   return process.env.APP_PIN ?? "1234";
 }

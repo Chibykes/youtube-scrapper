@@ -87,7 +87,7 @@ export default function CommentScraperPage() {
         ← Back to dashboard
       </Link>
 
-      <h1 className="text-2xl font-semibold text-foreground">
+      <h1 className="font-display text-3xl text-foreground">
         Comment Username Scraper
       </h1>
       <p className="mt-1 text-muted">
@@ -97,7 +97,7 @@ export default function CommentScraperPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-6 rounded-2xl border border-border bg-surface p-5"
+        className="mt-6 border border-border bg-surface p-5"
       >
         <label htmlFor="videoUrl" className="mb-2 block text-sm text-muted">
           Video URL
@@ -108,12 +108,12 @@ export default function CommentScraperPage() {
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
             placeholder="https://www.youtube.com/watch?v=..."
-            className="flex-1 rounded-lg border border-border bg-surface-2 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-accent"
+            className="flex-1 border border-border bg-surface-2 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
           <button
             type="submit"
             disabled={loading || !videoUrl.trim()}
-            className="rounded-lg bg-accent px-5 py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-accent px-5 py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Scraping..." : "Get commenters"}
           </button>
@@ -121,13 +121,13 @@ export default function CommentScraperPage() {
       </form>
 
       {error && (
-        <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+        <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}
         </p>
       )}
 
       {meta?.commentsDisabled && (
-        <p className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
+        <p className="mt-4 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
           Comments are disabled on this video.
         </p>
       )}
@@ -144,20 +144,20 @@ export default function CommentScraperPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={downloadCsv}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+                className="border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
               >
                 Export CSV
               </button>
               <button
                 onClick={sendToEmailValidator}
-                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+                className="bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
               >
                 Convert to emails
               </button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border">
+          <div className="overflow-x-auto border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-muted">
                 <tr>

@@ -6,89 +6,61 @@ const tools = [
     title: "Channel Email Scraper",
     description:
       "Paste a list of channel URLs or handles and pull any email addresses found on their About page.",
-    icon: (
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M2.25 6.75c0-.828.672-1.5 1.5-1.5h16.5c.828 0 1.5.672 1.5 1.5v10.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V6.75Zm0 0 9.75 6.75 9.75-6.75"
-      />
-    ),
   },
   {
     href: "/dashboard/comment-scraper",
     title: "Comment Username Scraper",
     description:
       "Paste a YouTube video link and collect the usernames of everyone who commented.",
-    icon: (
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"
-      />
-    ),
   },
   {
     href: "/dashboard/email-validator",
     title: "Username → Email Validator",
     description:
       "Turn commenter usernames into guessed Gmail addresses and validate each one with mails.so before you use it.",
-    icon: (
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M9 12.75 11.25 15 15 9.75M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9Z"
-      />
-    ),
   },
   {
     href: "/dashboard/send-emails",
     title: "Send Emails",
     description:
       "Compose a message and send it over Gmail SMTP to a list of validated recipients using your own app password.",
-    icon: (
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M6 12 3.269 3.126A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5"
-      />
-    ),
   },
 ];
 
 export default function DashboardPage() {
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-      <p className="mt-1 text-muted">Pick a tool to get started.</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-accent">
+        {"// dashboard"}
+      </p>
+      <h1 className="font-display mt-3 text-4xl text-foreground sm:text-5xl">
+        PICK A TOOL
+      </h1>
+      <p className="mt-4 max-w-md text-muted">
+        Four tools, one pipeline — from a raw video link to a sent email.
+      </p>
 
-      <div className="mt-8 grid gap-5 sm:grid-cols-2">
-        {tools.map((tool) => (
+      <div className="mt-10 border-t border-border">
+        {tools.map((tool, i) => (
           <Link
             key={tool.href}
             href={tool.href}
-            className="group rounded-2xl border border-border bg-surface p-6 transition-colors hover:border-accent"
+            className="group grid grid-cols-[3rem_1fr] items-center gap-4 border-b border-border py-6 transition-colors hover:bg-surface sm:grid-cols-[3rem_1fr_auto] sm:gap-6"
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                className="h-5 w-5"
-              >
-                {tool.icon}
-              </svg>
+            <span className="text-sm text-accent">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <h2 className="font-medium text-foreground group-hover:text-accent">
+                {tool.title}
+              </h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted">
+                {tool.description}
+              </p>
             </div>
-            <h2 className="mt-4 font-medium text-foreground group-hover:text-accent">
-              {tool.title}
-            </h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted">
-              {tool.description}
-            </p>
+            <span className="hidden text-muted transition-transform group-hover:translate-x-1 group-hover:text-accent sm:block">
+              →
+            </span>
           </Link>
         ))}
       </div>

@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE, getAppPin, getSessionSecret } from "@/lib/auth";
+import {
+  AUTH_COOKIE,
+  getAppEmail,
+  getAppPin,
+  getSessionSecret,
+} from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  const pin = typeof body?.pin === "string" ? body.pin : "";
+  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const password = typeof body?.password === "string" ? body.password : "";
 
-  if (pin !== getAppPin()) {
-    return NextResponse.json({ error: "Incorrect PIN" }, { status: 401 });
+  if (
+    email.toLowerCase() !== getAppEmail().toLowerCase() ||
+    password !== getAppPin()
+  ) {
+    return NextResponse.json(
+      { error: "Incorrect email or password" },
+      { status: 401 },
+    );
   }
 
   const response = NextResponse.json({ ok: true });

@@ -128,7 +128,7 @@ export default function EmailValidatorPage() {
         ← Back to dashboard
       </Link>
 
-      <h1 className="text-2xl font-semibold text-foreground">
+      <h1 className="font-display text-3xl text-foreground">
         Username → Email Validator
       </h1>
       <p className="mt-1 text-muted">
@@ -138,7 +138,7 @@ export default function EmailValidatorPage() {
         before you send anything.
       </p>
 
-      <div className="mt-6 rounded-2xl border border-border bg-surface p-5">
+      <div className="mt-6 border border-border bg-surface p-5">
         <label htmlFor="mailsoApiKey" className="mb-2 block text-sm text-muted">
           mails.so API key
         </label>
@@ -150,7 +150,7 @@ export default function EmailValidatorPage() {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="Your mails.so API key"
             autoComplete="off"
-            className="w-full rounded-lg border border-border bg-surface-2 px-4 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
+            className="w-full border border-border bg-surface-2 px-4 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
           <button
             type="button"
@@ -173,7 +173,7 @@ export default function EmailValidatorPage() {
           onChange={(e) => setRaw(e.target.value)}
           rows={8}
           placeholder={"mrbeast\ncool-guy99\n@johndoe123"}
-          className="w-full resize-y rounded-lg border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
+          className="w-full resize-y border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
@@ -182,7 +182,7 @@ export default function EmailValidatorPage() {
           <button
             onClick={handleSubmit}
             disabled={loading || usernameCount === 0}
-            className="rounded-lg bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Validating..." : "Convert & validate"}
           </button>
@@ -190,7 +190,7 @@ export default function EmailValidatorPage() {
       </div>
 
       {error && (
-        <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+        <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}
         </p>
       )}
@@ -204,21 +204,21 @@ export default function EmailValidatorPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={downloadCsv}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+                className="border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
               >
                 Export CSV
               </button>
               <button
                 onClick={sendSelected}
                 disabled={selected.size === 0}
-                className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Send to {selected.size} selected
               </button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border">
+          <div className="overflow-x-auto border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-muted">
                 <tr>
@@ -263,9 +263,9 @@ function StatusBadge({
   reason?: string;
 }) {
   const styles = {
-    valid: "bg-success/10 text-success",
-    invalid: "bg-danger/10 text-danger",
-    unknown: "bg-surface-2 text-muted",
+    valid: "border-success/30 bg-success/10 text-success",
+    invalid: "border-danger/30 bg-danger/10 text-danger",
+    unknown: "border-border bg-surface-2 text-muted",
   } as const;
   const labels = {
     valid: "Valid",
@@ -276,7 +276,7 @@ function StatusBadge({
   return (
     <span
       title={reason}
-      className={`rounded-full px-2.5 py-1 text-xs font-medium ${styles[status]}`}
+      className={`border px-2 py-0.5 text-xs uppercase tracking-wider ${styles[status]}`}
     >
       {labels[status]}
     </span>
