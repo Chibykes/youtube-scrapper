@@ -4,25 +4,25 @@ import Logo from "@/components/Logo";
 
 const features = [
   {
-    index: "01",
+    icon: "ri-mail-line",
     title: "Channel Email Scraper",
     description:
       "Paste a list of channel URLs or handles and pull any email addresses listed on their About page.",
   },
   {
-    index: "02",
+    icon: "ri-chat-3-line",
     title: "Comment Username Scraper",
     description:
       "Paste a video link and collect the usernames of everyone who commented — no API key required.",
   },
   {
-    index: "03",
+    icon: "ri-shield-check-line",
     title: "Username → Email Validator",
     description:
       "Guess a Gmail address for each username and validate every guess before it ever reaches your send list.",
   },
   {
-    index: "04",
+    icon: "ri-mail-send-line",
     title: "Send Emails",
     description:
       "Compose a message and send it over your own Gmail SMTP to the validated recipients, in safe batches.",
@@ -30,10 +30,26 @@ const features = [
 ];
 
 const commands = [
-  { cmd: "scrape channels --input list.txt", out: "→ 214 emails found across 38 channels" },
-  { cmd: "scrape comments --video <url>", out: "→ 1,842 usernames collected" },
-  { cmd: "validate --source usernames.csv", out: "→ 611 addresses confirmed deliverable" },
-  { cmd: "send --list validated.csv --from you@gmail.com", out: "→ sent in 7 batches, 0 bounces" },
+  {
+    cmd: "scrape channels --input list.txt",
+    out: "→ 214 emails found across 38 channels",
+    icon: "ri-mail-line",
+  },
+  {
+    cmd: "scrape comments --video <url>",
+    out: "→ 1,842 usernames collected",
+    icon: "ri-chat-3-line",
+  },
+  {
+    cmd: "validate --source usernames.csv",
+    out: "→ 611 addresses confirmed deliverable",
+    icon: "ri-shield-check-line",
+  },
+  {
+    cmd: "send --list validated.csv --from you@gmail.com",
+    out: "→ sent in 7 batches, 0 bounces",
+    icon: "ri-mail-send-line",
+  },
 ];
 
 export default async function Home() {
@@ -174,12 +190,10 @@ export default async function Home() {
             <div>
               {features.map((feature) => (
                 <div
-                  key={feature.index}
+                  key={feature.title}
                   className="grid grid-cols-[3rem_1fr] gap-6 border-b border-border py-7 sm:grid-cols-[4rem_1fr_1fr]"
                 >
-                  <span className="text-sm text-accent">
-                    {feature.index}
-                  </span>
+                  <i className={`${feature.icon} text-xl text-accent`} aria-hidden />
                   <h3 className="font-medium text-foreground">
                     {feature.title}
                   </h3>
@@ -211,7 +225,7 @@ export default async function Home() {
                     i !== commands.length - 1 ? "border-b border-border" : ""
                   }`}
                 >
-                  <span className="text-muted">{`0${i + 1}`}</span>
+                  <i className={`${c.icon} shrink-0 text-base text-accent`} aria-hidden />
                   <span className="text-foreground">
                     <span className="text-accent">$</span> {c.cmd}
                   </span>

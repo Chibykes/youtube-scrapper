@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Sans, Archivo_Black } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { clerkAppearance } from "@/lib/clerk-appearance";
+import "remixicon/fonts/remixicon.css";
 import "./globals.css";
 
 const instrumentSans = Instrument_Sans({

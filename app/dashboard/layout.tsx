@@ -1,6 +1,7 @@
 import { currentUser } from "@clerk/nextjs/server";
 import LogoutButton from "@/components/LogoutButton";
 import Logo from "@/components/Logo";
+import WalletBalance from "@/components/WalletBalance";
 
 export default async function DashboardLayout({
   children,
@@ -16,8 +17,9 @@ export default async function DashboardLayout({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
           <Logo href="/dashboard" />
           <div className="flex items-center gap-4">
+            <WalletBalance />
             {email && (
-              <span className="hidden text-sm text-muted sm:block">
+              <span className="hidden text-sm text-muted lg:block">
                 {email}
               </span>
             )}

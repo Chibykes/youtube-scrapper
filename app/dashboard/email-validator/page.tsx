@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
 type ConvertedEmail = {
   username: string;
@@ -14,6 +15,7 @@ type ConvertedEmail = {
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
 const STORAGE_MAILSO_KEY_KEY = "ytscraper:mailsoApiKey";
+const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
 
 export default function EmailValidatorPage() {
   const router = useRouter();
@@ -46,6 +48,7 @@ export default function EmailValidatorPage() {
   );
 
   const validCount = results.filter((r) => r.status === "valid").length;
+  const estimatedCost = usernameCount * COST_PER_VALIDATION;
 
   async function handleSubmit() {
     const usernames = raw
@@ -72,10 +75,16 @@ export default function EmailValidatorPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Something went wrong");
+        if (Array.isArray(data.results)) {
+          setResults(data.results);
+        }
       } else {
         const converted: ConvertedEmail[] = data.results;
         setResults(converted);
         setSelected(new Set(converted.filter((r) => r.status === "valid").map((r) => r.email)));
+        if (typeof data.balance === "number") {
+          window.dispatchEvent(new Event("wallet:updated"));
+        }
       }
     } catch {
       setError("Failed to reach the server");
@@ -178,6 +187,9 @@ export default function EmailValidatorPage() {
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
             {usernameCount} username{usernameCount === 1 ? "" : "s"}
+            {COST_PER_VALIDATION > 0 && usernameCount > 0 && (
+              <> — costs {estimatedCost} {CURRENCY}</>
+            )}
           </span>
           <button
             onClick={handleSubmit}
@@ -191,7 +203,12 @@ export default function EmailValidatorPage() {
 
       {error && (
         <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-          {error}
+          {error}{" "}
+          {error.toLowerCase().includes("balance") && (
+            <Link href="/dashboard/wallet" className="underline hover:text-danger/80">
+              Add funds
+            </Link>
+          )}
         </p>
       )}
 
