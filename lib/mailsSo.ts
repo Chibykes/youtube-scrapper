@@ -1,274 +1,193 @@
-export type EmailValidationStatus = "valid" | "invalid" | "unknown";
+import { debugDump } from "@/lib/debugDump";
+import { mapWithConcurrency } from "@/lib/youtube";
 
-export type EmailValidationResult = {
-  email: string;
-  status: EmailValidationStatus;
-  result?: string;
-  reason?: string;
-  score?: number;
-};
+const API_BASE = "https://api.mails.so/v1";
+const BATCH_POLL_ATTEMPTS = 6;
+const BATCH_POLL_INTERVAL_MS = 2000;
+const BACKFILL_CONCURRENCY = 5;
 
-// Minimum mails.so validation score (0-100) at which we'll treat an
-// otherwise-inconclusive result ("risky", "unknown", or a genuine timeout
-// on their end that still came back with a score) as deliverable.
+// mails.so's own guidance: a high score with a "deliverable" result
+// indicates a valid, usable address. Below this we treat the result as too
+// uncertain to call valid. See https://docs.mails.so/response.
 const SCORE_VALID_THRESHOLD = 50;
 
-function getApiKey(override: string | undefined): string {
+/** mails.so's `result` verdict. Documented values: docs.mails.so/response. */
+export type MailsSoVerdict = "deliverable" | "undeliverable" | "risky" | "unknown";
+
+/**
+ * Raw per-email result shape returned by both `GET /v1/validate` and
+ * `GET /v1/batch/:id` (each entry of its `emails` array) — see
+ * https://docs.mails.so/bulk.
+ */
+export type MailsSoEmail = {
+  id: string;
+  email: string;
+  username: string | null;
+  domain: string | null;
+  mx_record: string | null;
+  score: number;
+  isv_format: boolean;
+  isv_domain: boolean;
+  isv_mx: boolean | null;
+  isv_noblock: boolean;
+  isv_nocatchall: boolean;
+  isv_nogeneric: boolean;
+  is_free: boolean;
+  result: MailsSoVerdict;
+  reason: string;
+};
+
+/** `POST /v1/batch` response and the shape returned by `GET /v1/batch/:id`. */
+export type MailsSoBatch = {
+  id: string;
+  name: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  finished_at: string | null;
+  user_id: string;
+  size: number;
+  emails?: MailsSoEmail[];
+};
+
+export type EmailStatus = "valid" | "invalid" | "unknown";
+
+/** Our own valid/invalid/unknown verdict, derived from mails.so's raw result. */
+export type MailsSoResult = {
+  email: string;
+  status: EmailStatus;
+  result: MailsSoVerdict;
+  reason: string;
+  score: number;
+  isFree: boolean | null;
+  isDisposable: boolean;
+  isCatchAll: boolean;
+};
+
+function apiKeyOrThrow(override: string | undefined): string {
   const key = override || process.env.MAILSO_API_KEY;
   if (!key) throw new Error("No mails.so API key provided");
   return key;
 }
 
-// mails.so's /v1/validate and /v1/batch return a `result` field such as
-// "deliverable", "undeliverable", "risky", or "unknown", plus a 0-100
-// `score`. "deliverable"/"undeliverable" are unambiguous. Everything else
-// (including their own "risky" bucket, or a per-email timeout that still
-// came back with a score) falls back to the score: above the threshold we
-// call it valid, otherwise it stays unknown.
-function toStatus(result: string | undefined, score: number | undefined): EmailValidationStatus {
-  const normalized = result?.toLowerCase();
-  if (normalized === "deliverable" || normalized === "valid") return "valid";
-  if (normalized === "undeliverable" || normalized === "invalid") return "invalid";
-  if (typeof score === "number" && score >= SCORE_VALID_THRESHOLD) return "valid";
-  return "unknown";
+// mails.so's `result` is "deliverable" | "undeliverable" | "risky" |
+// "unknown". The first two are unambiguous and always win. "risky"/
+// "unknown" fall back to `score` as the tiebreaker.
+function statusFor(result: MailsSoVerdict, score: number): EmailStatus {
+  if (result === "deliverable") return "valid";
+  if (result === "undeliverable") return "invalid";
+  return score >= SCORE_VALID_THRESHOLD ? "valid" : "unknown";
 }
 
-// Builds the { status, reason } pair for one mails.so result, noting in the
-// reason when a "risky"/"unknown" result was upgraded to valid on score
-// alone — so it's obvious in the UI why an email marked "valid" wasn't a
-// clean "deliverable" from mails.so.
-function describeResult(
-  result: string | undefined,
-  score: number | undefined,
-  reason: string | undefined
-): { status: EmailValidationStatus; reason: string | undefined } {
-  const status = toStatus(result, score);
-  const scoredOverride = status === "valid" && result?.toLowerCase() !== "deliverable";
+function toResult(raw: Partial<MailsSoEmail> | undefined, fallbackEmail: string): MailsSoResult {
+  const email = raw?.email ?? fallbackEmail;
+  const result = raw?.result ?? "unknown";
+  const score = typeof raw?.score === "number" ? raw.score : 0;
+
   return {
-    status,
-    reason: scoredOverride ? `score ${score} (${reason ?? result ?? "unknown"})` : reason,
+    email,
+    status: statusFor(result, score),
+    result,
+    reason: raw?.reason ?? "unknown",
+    score,
+    isFree: raw?.is_free ?? null,
+    isDisposable: raw?.isv_nogeneric === false,
+    isCatchAll: raw?.isv_nocatchall === false,
   };
 }
 
 export async function validateEmail(
   email: string,
   apiKeyOverride?: string
-): Promise<EmailValidationResult> {
-  const apiKey = getApiKey(apiKeyOverride);
-  const url = new URL("https://api.mails.so/v1/validate");
+): Promise<MailsSoResult> {
+  const apiKey = apiKeyOrThrow(apiKeyOverride);
+  const url = new URL(`${API_BASE}/validate`);
   url.searchParams.set("email", email);
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: { "x-mails-api-key": apiKey },
-      cache: "no-store",
-    });
-  } catch (err) {
-    return {
-      email,
-      status: "unknown",
-      reason: err instanceof Error ? err.message : "Request failed",
-    };
+  const res = await fetch(url, {
+    headers: { "x-mails-api-key": apiKey },
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!res || !res.ok) {
+    return toResult({ reason: res ? `http_${res.status}` : "request_failed" }, email);
   }
 
-  if (!res.ok) {
-    return { email, status: "unknown", reason: `HTTP ${res.status}` };
-  }
-
-  const body = await res.json().catch(() => null);
-  const data = body?.data ?? body ?? {};
-  const result: string | undefined = data.result;
-  const rawReason: string | undefined = data.reason;
-  const score: number | undefined = typeof data.score === "number" ? data.score : undefined;
-  const { status, reason } = describeResult(result, score, rawReason);
-
-  return { email, status, result, reason, score };
+  const body = (await res.json().catch(() => null)) as { data?: MailsSoEmail } | null;
+  return toResult(body?.data, email);
 }
 
-type BatchJob = {
-  id: string;
-  size: number;
-  finished_at: string | null;
-};
-
-type BatchEmailResult = {
-  email: string;
-  result?: string;
-  reason?: string;
-  score?: number;
-};
-
-type BatchJobResult = BatchJob & {
-  emails: BatchEmailResult[];
-};
-
-async function submitBatch(emails: string[], apiKey: string): Promise<BatchJob> {
-  const res = await fetch("https://api.mails.so/v1/batch", {
+async function submitBatch(emails: string[], apiKey: string): Promise<MailsSoBatch> {
+  const res = await fetch(`${API_BASE}/batch`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-mails-api-key": apiKey,
-    },
+    headers: { "Content-Type": "application/json", "x-mails-api-key": apiKey },
     body: JSON.stringify({ emails }),
     cache: "no-store",
   });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(body?.error || `mails.so batch submit failed (HTTP ${res.status})`);
-  }
-
+  if (!res.ok) throw new Error(`mails.so batch submit failed (HTTP ${res.status})`);
   return res.json();
 }
 
-async function getBatch(id: string, apiKey: string): Promise<BatchJobResult> {
-  const res = await fetch(`https://api.mails.so/v1/batch/${id}`, {
+async function fetchBatch(id: string, apiKey: string): Promise<MailsSoBatch> {
+  const res = await fetch(`${API_BASE}/batch/${id}`, {
     headers: { "x-mails-api-key": apiKey },
     cache: "no-store",
   });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(body?.error || `mails.so batch fetch failed (HTTP ${res.status})`);
-  }
-
+  if (!res.ok) throw new Error(`mails.so batch fetch failed (HTTP ${res.status})`);
   return res.json();
-}
-
-// Dev-only: writes a finished batch response to disk so we have a real
-// sample of mails.so's bulk API shape for documentation/reference. Never
-// runs in production — Vercel's filesystem is read-only there anyway.
-async function logBatchSample(job: BatchJobResult) {
-  if (process.env.NODE_ENV === "production") return;
-  try {
-    const { writeFile, mkdir } = await import("node:fs/promises");
-    const path = await import("node:path");
-    const dir = path.join(process.cwd(), "docs");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      path.join(dir, `${job.id}-mailsso-batch-sample.json`),
-      JSON.stringify(job, null, 2)
-    );
-  } catch {
-    // best-effort — logging a sample should never break validation
-  }
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Polls a single batch job until mails.so marks it finished, or until
-// `deadline` (a Date.now() timestamp) passes — whichever comes first.
-async function pollBatch(
-  id: string,
-  apiKey: string,
-  deadline: number,
-  pollIntervalMs: number
-): Promise<BatchJobResult | null> {
-  while (Date.now() < deadline) {
-    const job = await getBatch(id, apiKey);
-    if (job.finished_at) {
-      await logBatchSample(job);
-      return job;
-    }
-    await sleep(pollIntervalMs);
-  }
-  return null;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-}
-
 /**
- * Validates a list of emails using mails.so's bulk batch API instead of one
- * request per email. Large lists are split into chunks (mails.so doesn't
- * document a max batch size, so we cap it ourselves), each chunk is
- * submitted as its own batch job, and jobs are polled concurrently.
+ * Validates a list of emails via mails.so's bulk batch endpoint — one job
+ * for the whole list, submitted in a single request per
+ * https://docs.mails.so/bulk. A batch isn't ready the instant it's
+ * submitted (`finished_at` starts out null), but mails.so finishes
+ * small/medium batches in ~1-2s, so this checks back a few times a couple
+ * seconds apart rather than long-polling indefinitely.
  *
- * Emails still pending when `maxWaitMs` elapses come back as "unknown" with
- * a timeout reason, so the caller always gets a result per email.
+ * mails.so can silently omit emails it's already validated recently from
+ * the batch results, so anything still missing afterward — or every email,
+ * if the batch never finishes in time — is backfilled with individual
+ * `/v1/validate` calls, guaranteeing a real result for every email.
  */
 export async function validateEmailsBulk(
   emails: string[],
-  apiKeyOverride: string | undefined,
-  options: { chunkSize?: number; pollIntervalMs?: number; maxWaitMs?: number } = {}
-): Promise<EmailValidationResult[]> {
-  const apiKey = getApiKey(apiKeyOverride);
-  const chunkSize = options.chunkSize ?? 200;
-  const pollIntervalMs = options.pollIntervalMs ?? 2000;
-  const maxWaitMs = options.maxWaitMs ?? 45_000;
-  const deadline = Date.now() + maxWaitMs;
+  apiKeyOverride?: string
+): Promise<MailsSoResult[]> {
+  const apiKey = apiKeyOrThrow(apiKeyOverride);
+  const byEmail = new Map<string, MailsSoResult>();
 
-  const batches = chunk(emails, chunkSize);
+  try {
+    const batchResult = await submitBatch(emails, apiKey);
+    const { id } = batchResult;
+    await debugDump(`mailsso-batch-${id}-submit`, batchResult);
+    for (let attempt = 0; attempt < BATCH_POLL_ATTEMPTS; attempt++) {
+      await sleep(BATCH_POLL_INTERVAL_MS);
+      const job = await fetchBatch(id, apiKey);
+      console.log("================= FETCHED BATCH JOB ======================", job);
+      await debugDump(`mailsso-batch-${id}-poll-${attempt}`, job);
+      if (!job.finished_at) continue;
 
-  const jobs = await Promise.all(
-    batches.map(async (batchEmails) => {
-      try {
-        const job = await submitBatch(batchEmails, apiKey);
-        return { batchEmails, jobId: job.id as string | null };
-      } catch {
-        return { batchEmails, jobId: null };
+      for (const raw of job.emails ?? []) {
+        byEmail.set(raw.email, toResult(raw, raw.email));
       }
-    })
-  );
+      break;
+    }
+  } catch {
+    // Submission or polling failed outright — every email gets backfilled below.
+  }
 
-  const resultsByEmail = new Map<string, EmailValidationResult>();
+  const missing = emails.filter((email) => !byEmail.has(email));
+  if (missing.length > 0) {
+    const backfilled = await mapWithConcurrency(missing, BACKFILL_CONCURRENCY, (email) =>
+      validateEmail(email, apiKey)
+    );
+    for (const result of backfilled) byEmail.set(result.email, result);
+  }
 
-  await Promise.all(
-    jobs.map(async ({ batchEmails, jobId }) => {
-      if (!jobId) {
-        for (const email of batchEmails) {
-          resultsByEmail.set(email, {
-            email,
-            status: "unknown",
-            reason: "Failed to submit for validation",
-          });
-        }
-        return;
-      }
-
-      let finished: BatchJobResult | null = null;
-      try {
-        finished = await pollBatch(jobId, apiKey, deadline, pollIntervalMs);
-      } catch {
-        finished = null;
-      }
-
-      if (!finished) {
-        for (const email of batchEmails) {
-          resultsByEmail.set(email, {
-            email,
-            status: "unknown",
-            reason: "Validation timed out",
-          });
-        }
-        return;
-      }
-
-      const byEmail = new Map(finished.emails.map((e) => [e.email, e]));
-      for (const email of batchEmails) {
-        const entry = byEmail.get(email);
-        const { status, reason } = describeResult(entry?.result, entry?.score, entry?.reason);
-        resultsByEmail.set(email, {
-          email,
-          status,
-          result: entry?.result,
-          reason,
-          score: entry?.score,
-        });
-      }
-    })
-  );
-
-  return emails.map(
-    (email) =>
-      resultsByEmail.get(email) ?? { email, status: "unknown", reason: "No result returned" }
-  );
+  return emails.map((email) => byEmail.get(email)!);
 }
