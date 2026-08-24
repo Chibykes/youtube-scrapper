@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { usernamesToEmailCandidates } from "@/lib/emailGuess";
 import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
-type ConvertedEmail = {
-  username: string;
-  email: string;
-  status: "valid" | "invalid" | "unknown";
+type ValidationStatus = "pending" | "valid" | "invalid" | "unknown";
+
+type Validation = {
+  status: Exclude<ValidationStatus, "pending">;
   reason?: string;
 };
 
@@ -24,7 +25,7 @@ export default function EmailValidatorPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [results, setResults] = useState<ConvertedEmail[]>([]);
+  const [validations, setValidations] = useState<Map<string, Validation>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
@@ -42,46 +43,72 @@ export default function EmailValidatorPage() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
-  const usernameCount = useMemo(
-    () => raw.split("\n").map((l) => l.trim()).filter(Boolean).length,
-    [raw]
-  );
-
-  const validCount = results.filter((r) => r.status === "valid").length;
-  const estimatedCost = usernameCount * COST_PER_VALIDATION;
-
-  async function handleSubmit() {
+  // Guessing the Gmail address from a username is pure client-side string
+  // manipulation (see lib/emailGuess.ts) — no need to round-trip to the
+  // server just to show the list. Only validating against mails.so costs
+  // money and needs a server.
+  const candidates = useMemo(() => {
     const usernames = raw
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
+    return usernamesToEmailCandidates(usernames).sort((a, b) =>
+      a.email.localeCompare(b.email, undefined, { numeric: true })
+    );
+  }, [raw]);
 
-    if (usernames.length === 0) return;
+  const rows = useMemo(
+    () =>
+      candidates.map((c) => {
+        const v = validations.get(c.email);
+        return {
+          username: c.username,
+          email: c.email,
+          status: (v?.status ?? "pending") as ValidationStatus,
+          reason: v?.reason,
+        };
+      }),
+    [candidates, validations]
+  );
+
+  const validCount = rows.filter((r) => r.status === "valid").length;
+  const validatedCount = rows.filter((r) => r.status !== "pending").length;
+  const estimatedCost = candidates.length * COST_PER_VALIDATION;
+
+  async function handleValidate() {
+    if (candidates.length === 0) return;
 
     const trimmedApiKey = apiKey.trim();
     localStorage.setItem(STORAGE_MAILSO_KEY_KEY, trimmedApiKey);
 
     setLoading(true);
     setError("");
-    setResults([]);
-    setSelected(new Set());
 
     try {
-      const res = await fetch("/api/scrape/convert-emails", {
+      const res = await fetch("/api/scrape/validate-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usernames, apiKey: trimmedApiKey }),
+        body: JSON.stringify({ candidates, apiKey: trimmedApiKey }),
       });
       const data = await res.json();
+
+      type ResultRow = { email: string; status: Validation["status"]; reason?: string };
+      const applyResults = (results: ResultRow[]) => {
+        setValidations((prev) => {
+          const next = new Map(prev);
+          for (const r of results) {
+            next.set(r.email, { status: r.status, reason: r.reason });
+          }
+          return next;
+        });
+        setSelected(new Set(results.filter((r) => r.status === "valid").map((r) => r.email)));
+      };
+
       if (!res.ok) {
         setError(data.error ?? "Something went wrong");
-        if (Array.isArray(data.results)) {
-          setResults(data.results);
-        }
+        if (Array.isArray(data.results)) applyResults(data.results);
       } else {
-        const converted: ConvertedEmail[] = data.results;
-        setResults(converted);
-        setSelected(new Set(converted.filter((r) => r.status === "valid").map((r) => r.email)));
+        applyResults(data.results);
         if (typeof data.balance === "number") {
           window.dispatchEvent(new Event("wallet:updated"));
         }
@@ -106,11 +133,11 @@ export default function EmailValidatorPage() {
   }
 
   function downloadCsv() {
-    const rows = [
+    const csvRows = [
       ["Username", "Email", "Status", "Reason"],
-      ...results.map((r) => [r.username, r.email, r.status, r.reason ?? ""]),
+      ...rows.map((r) => [r.username, r.email, r.status, r.reason ?? ""]),
     ];
-    const csv = rows
+    const csv = csvRows
       .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -141,10 +168,10 @@ export default function EmailValidatorPage() {
         Username → Email Validator
       </h1>
       <p className="mt-1 text-muted">
-        Paste YouTube usernames (one per line). We&apos;ll guess a Gmail
-        address for each — a leading @ is dropped, and hyphenated names are
-        truncated at the hyphen — then validate every guess with mails.so
-        before you send anything.
+        Paste YouTube usernames (one per line) — a leading @ is dropped, and
+        hyphenated names are truncated at the hyphen. The guessed Gmail
+        addresses show up instantly below; validating them against mails.so
+        is what costs {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
@@ -186,17 +213,21 @@ export default function EmailValidatorPage() {
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
-            {usernameCount} username{usernameCount === 1 ? "" : "s"}
-            {COST_PER_VALIDATION > 0 && usernameCount > 0 && (
-              <> — costs {estimatedCost} {CURRENCY}</>
+            {candidates.length} email{candidates.length === 1 ? "" : "s"} guessed
+            {COST_PER_VALIDATION > 0 && candidates.length > 0 && (
+              <> — validating costs {estimatedCost} {CURRENCY}</>
             )}
           </span>
           <button
-            onClick={handleSubmit}
-            disabled={loading || usernameCount === 0}
+            onClick={handleValidate}
+            disabled={loading || candidates.length === 0}
             className="bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Validating..." : "Convert & validate"}
+            {loading
+              ? "Validating..."
+              : validatedCount > 0
+                ? "Re-validate"
+                : "Validate with mails.so"}
           </button>
         </div>
       </div>
@@ -212,11 +243,13 @@ export default function EmailValidatorPage() {
         </p>
       )}
 
-      {results.length > 0 && (
+      {rows.length > 0 && (
         <div className="mt-8">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-medium text-foreground">
-              {validCount} of {results.length} validated as deliverable
+              {validatedCount > 0
+                ? `${validCount} of ${rows.length} validated as deliverable`
+                : `${rows.length} guessed, not yet validated`}
             </h2>
             <div className="flex items-center gap-3">
               <button
@@ -246,14 +279,15 @@ export default function EmailValidatorPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {results.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.email} className="bg-surface">
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
                         checked={selected.has(r.email)}
                         onChange={() => toggleSelected(r.email)}
-                        className="h-4 w-4 accent-accent"
+                        disabled={r.status !== "valid"}
+                        className="h-4 w-4 accent-accent disabled:opacity-30"
                       />
                     </td>
                     <td className="px-4 py-3 text-foreground">{r.username}</td>
@@ -276,15 +310,17 @@ function StatusBadge({
   status,
   reason,
 }: {
-  status: ConvertedEmail["status"];
+  status: ValidationStatus;
   reason?: string;
 }) {
   const styles = {
+    pending: "border-border bg-surface-2 text-muted",
     valid: "border-success/30 bg-success/10 text-success",
     invalid: "border-danger/30 bg-danger/10 text-danger",
     unknown: "border-border bg-surface-2 text-muted",
   } as const;
   const labels = {
+    pending: "Pending",
     valid: "Valid",
     invalid: "Invalid",
     unknown: "Unknown",

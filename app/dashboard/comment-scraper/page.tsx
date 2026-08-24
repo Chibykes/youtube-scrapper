@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useMemo, useState, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -12,6 +12,9 @@ type CommentAuthor = {
   commentCount: number;
 };
 
+type SortKey = "username" | "commentCount";
+type SortDir = "asc" | "desc";
+
 export default function CommentScraperPage() {
   const router = useRouter();
   const [videoUrl, setVideoUrl] = useState("");
@@ -22,6 +25,28 @@ export default function CommentScraperPage() {
     threadsFetched: number;
     commentsDisabled: boolean;
   } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("username");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const sortedAuthors = useMemo(() => {
+    const sorted = [...authors].sort((a, b) => {
+      if (sortKey === "username") {
+        return a.username.localeCompare(b.username);
+      }
+      return a.commentCount - b.commentCount;
+    });
+    if (sortDir === "desc") sorted.reverse();
+    return sorted;
+  }, [authors, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "commentCount" ? "desc" : "asc");
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -58,7 +83,7 @@ export default function CommentScraperPage() {
   function downloadCsv() {
     const rows = [
       ["Username", "Channel URL", "Comment Count"],
-      ...authors.map((a) => [a.username, a.channelUrl ?? "", String(a.commentCount)]),
+      ...sortedAuthors.map((a) => [a.username, a.channelUrl ?? "", String(a.commentCount)]),
     ];
     const csv = rows
       .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
@@ -73,7 +98,7 @@ export default function CommentScraperPage() {
   }
 
   function sendToEmailValidator() {
-    const usernames = authors.map((a) => a.username).join("\n");
+    const usernames = sortedAuthors.map((a) => a.username).join("\n");
     sessionStorage.setItem(SESSION_USERNAMES_KEY, usernames);
     router.push("/dashboard/email-validator");
   }
@@ -161,12 +186,38 @@ export default function CommentScraperPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-muted">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Comments</th>
+                  <th className="px-4 py-3 font-medium">
+                    <button
+                      onClick={() => toggleSort("username")}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      Username
+                      {sortKey === "username" && (
+                        <i
+                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <button
+                      onClick={() => toggleSort("commentCount")}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      Comments
+                      {sortKey === "commentCount" && (
+                        <i
+                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {authors.map((a) => (
+                {sortedAuthors.map((a) => (
                   <tr key={a.username} className="bg-surface">
                     <td className="px-4 py-3">
                       {a.channelUrl ? (

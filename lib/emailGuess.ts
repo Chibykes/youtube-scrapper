@@ -14,7 +14,7 @@ export function usernameToGmail(username: string): string | null {
     base = base.slice(0, hyphenIndex);
   }
 
-  base = base.replace(/[^a-z0-9._]/g, "").replace(/^\.+|\.+$/g, "");
+  base = base.replace(/[^a-z0-9_]/g, "").replace(/^\.+|\.+$/g, "");
 
   if (!base) return null;
   return `${base}@gmail.com`;

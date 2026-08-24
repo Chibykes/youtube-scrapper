@@ -1,22 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { usernamesToEmailCandidates } from "@/lib/emailGuess";
-import { validateEmail } from "@/lib/mailsSo";
-import { mapWithConcurrency } from "@/lib/youtube";
+import { validateEmailsBulk } from "@/lib/mailsSo";
 import { getBalance, debitWallet, InsufficientBalanceError } from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
 export const maxDuration = 60;
 
-const MAX_USERNAMES = 500;
+const MAX_CANDIDATES = 500;
 
-type ConvertedEmail = {
+type Candidate = {
+  username: string;
+  email: string;
+};
+
+type ValidatedEmail = {
   username: string;
   email: string;
   status: "valid" | "invalid" | "unknown";
   reason?: string;
 };
 
+function parseCandidates(input: unknown): Candidate[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const candidates: Candidate[] = [];
+
+  for (const item of input) {
+    const username = typeof item?.username === "string" ? item.username.trim() : "";
+    const email = typeof item?.email === "string" ? item.email.trim().toLowerCase() : "";
+    if (!username || !email || seen.has(email)) continue;
+    seen.add(email);
+    candidates.push({ username, email });
+  }
+
+  return candidates;
+}
+
+// Guessing the Gmail address from a username now happens client-side (see
+// lib/emailGuess.ts) so the list is ready to show instantly — this route
+// only does the part that needs a server: paid validation against mails.so.
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
@@ -24,31 +46,15 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
-  const usernames: unknown = body?.usernames;
-  const apiKey = typeof body?.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : undefined;
-
-  if (!Array.isArray(usernames) || usernames.length === 0) {
-    return NextResponse.json(
-      { error: "Provide a non-empty list of usernames" },
-      { status: 400 }
-    );
-  }
-
-  const cleaned = usernames
-    .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
-    .slice(0, MAX_USERNAMES);
-
-  if (cleaned.length === 0) {
-    return NextResponse.json(
-      { error: "Provide a non-empty list of usernames" },
-      { status: 400 }
-    );
-  }
-
-  const candidates = usernamesToEmailCandidates(cleaned);
+  const apiKey =
+    typeof body?.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : undefined;
+  const candidates = parseCandidates(body?.candidates).slice(0, MAX_CANDIDATES);
 
   if (candidates.length === 0) {
-    return NextResponse.json({ results: [] satisfies ConvertedEmail[] });
+    return NextResponse.json(
+      { error: "Provide a non-empty list of username/email pairs" },
+      { status: 400 }
+    );
   }
 
   const costPerValidation = TOOL_COSTS.emailValidator ?? 0;
@@ -69,15 +75,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let results: ConvertedEmail[];
+  let results: ValidatedEmail[];
   try {
-    results = await mapWithConcurrency(candidates, 5, async (candidate) => {
-      const validation = await validateEmail(candidate.email, apiKey);
+    const validations = await validateEmailsBulk(
+      candidates.map((c) => c.email),
+      apiKey
+    );
+    const byEmail = new Map(validations.map((v) => [v.email, v]));
+    results = candidates.map((c) => {
+      const v = byEmail.get(c.email);
       return {
-        username: candidate.username,
-        email: candidate.email,
-        status: validation.status,
-        reason: validation.reason,
+        username: c.username,
+        email: c.email,
+        status: v?.status ?? "unknown",
+        reason: v?.reason,
       };
     });
   } catch (err) {
@@ -98,7 +109,11 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       if (err instanceof InsufficientBalanceError) {
         return NextResponse.json(
-          { error: "Balance ran out mid-run. Results below were still validated.", code: "insufficient_balance", results },
+          {
+            error: "Balance ran out mid-run. Results below were still validated.",
+            code: "insufficient_balance",
+            results,
+          },
           { status: 402 }
         );
       }
