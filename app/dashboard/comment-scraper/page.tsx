@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useMemo, useState, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -12,6 +12,9 @@ type CommentAuthor = {
   commentCount: number;
 };
 
+type SortKey = "username" | "commentCount";
+type SortDir = "asc" | "desc";
+
 export default function CommentScraperPage() {
   const router = useRouter();
   const [videoUrl, setVideoUrl] = useState("");
@@ -22,6 +25,28 @@ export default function CommentScraperPage() {
     threadsFetched: number;
     commentsDisabled: boolean;
   } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("username");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const sortedAuthors = useMemo(() => {
+    const sorted = [...authors].sort((a, b) => {
+      if (sortKey === "username") {
+        return a.username.localeCompare(b.username);
+      }
+      return a.commentCount - b.commentCount;
+    });
+    if (sortDir === "desc") sorted.reverse();
+    return sorted;
+  }, [authors, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "commentCount" ? "desc" : "asc");
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -58,7 +83,7 @@ export default function CommentScraperPage() {
   function downloadCsv() {
     const rows = [
       ["Username", "Channel URL", "Comment Count"],
-      ...authors.map((a) => [a.username, a.channelUrl ?? "", String(a.commentCount)]),
+      ...sortedAuthors.map((a) => [a.username, a.channelUrl ?? "", String(a.commentCount)]),
     ];
     const csv = rows
       .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
@@ -73,7 +98,7 @@ export default function CommentScraperPage() {
   }
 
   function sendToEmailValidator() {
-    const usernames = authors.map((a) => a.username).join("\n");
+    const usernames = sortedAuthors.map((a) => a.username).join("\n");
     sessionStorage.setItem(SESSION_USERNAMES_KEY, usernames);
     router.push("/dashboard/email-validator");
   }
@@ -87,7 +112,7 @@ export default function CommentScraperPage() {
         ← Back to dashboard
       </Link>
 
-      <h1 className="text-2xl font-semibold text-foreground">
+      <h1 className="font-display text-3xl text-foreground">
         Comment Username Scraper
       </h1>
       <p className="mt-1 text-muted">
@@ -97,7 +122,7 @@ export default function CommentScraperPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-6 rounded-2xl border border-border bg-surface p-5"
+        className="mt-6 border border-border bg-surface p-5"
       >
         <label htmlFor="videoUrl" className="mb-2 block text-sm text-muted">
           Video URL
@@ -108,12 +133,12 @@ export default function CommentScraperPage() {
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
             placeholder="https://www.youtube.com/watch?v=..."
-            className="flex-1 rounded-lg border border-border bg-surface-2 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-accent"
+            className="flex-1 border border-border bg-surface-2 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
           <button
             type="submit"
             disabled={loading || !videoUrl.trim()}
-            className="rounded-lg bg-accent px-5 py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-accent px-5 py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Scraping..." : "Get commenters"}
           </button>
@@ -121,13 +146,13 @@ export default function CommentScraperPage() {
       </form>
 
       {error && (
-        <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+        <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}
         </p>
       )}
 
       {meta?.commentsDisabled && (
-        <p className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
+        <p className="mt-4 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
           Comments are disabled on this video.
         </p>
       )}
@@ -144,29 +169,55 @@ export default function CommentScraperPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={downloadCsv}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+                className="border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
               >
                 Export CSV
               </button>
               <button
                 onClick={sendToEmailValidator}
-                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+                className="bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
               >
                 Convert to emails
               </button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border">
+          <div className="overflow-x-auto border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-muted">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Comments</th>
+                  <th className="px-4 py-3 font-medium">
+                    <button
+                      onClick={() => toggleSort("username")}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      Username
+                      {sortKey === "username" && (
+                        <i
+                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <button
+                      onClick={() => toggleSort("commentCount")}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      Comments
+                      {sortKey === "commentCount" && (
+                        <i
+                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {authors.map((a) => (
+                {sortedAuthors.map((a) => (
                   <tr key={a.username} className="bg-surface">
                     <td className="px-4 py-3">
                       {a.channelUrl ? (

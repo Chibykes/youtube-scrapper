@@ -88,7 +88,7 @@ export default function EmailScraperPage() {
         ← Back to dashboard
       </Link>
 
-      <h1 className="text-2xl font-semibold text-foreground">
+      <h1 className="font-display text-3xl text-foreground">
         Channel Email Scraper
       </h1>
       <p className="mt-1 text-muted">
@@ -97,13 +97,13 @@ export default function EmailScraperPage() {
         addresses.
       </p>
 
-      <div className="mt-6 rounded-2xl border border-border bg-surface p-5">
+      <div className="mt-6 border border-border bg-surface p-5">
         <textarea
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           rows={8}
           placeholder={"@mkbhd\nhttps://www.youtube.com/@veritasium\nUCX6OQ3DkcsbYNE6H8uQQuVA"}
-          className="w-full resize-y rounded-lg border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
+          className="w-full resize-y border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
@@ -112,7 +112,7 @@ export default function EmailScraperPage() {
           <button
             onClick={handleSubmit}
             disabled={loading || channelCount === 0}
-            className="rounded-lg bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Scraping..." : "Scrape emails"}
           </button>
@@ -120,7 +120,7 @@ export default function EmailScraperPage() {
       </div>
 
       {error && (
-        <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+        <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}
         </p>
       )}
@@ -133,13 +133,13 @@ export default function EmailScraperPage() {
             </h2>
             <button
               onClick={downloadCsv}
-              className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
+              className="border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-foreground"
             >
               Export CSV
             </button>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border">
+          <div className="overflow-x-auto border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-muted">
                 <tr>
@@ -197,9 +197,9 @@ export default function EmailScraperPage() {
 
 function StatusBadge({ status }: { status: ChannelResult["status"] }) {
   const styles = {
-    ok: "bg-success/10 text-success",
-    "no-email": "bg-surface-2 text-muted",
-    error: "bg-danger/10 text-danger",
+    ok: "border-success/30 bg-success/10 text-success",
+    "no-email": "border-border bg-surface-2 text-muted",
+    error: "border-danger/30 bg-danger/10 text-danger",
   } as const;
   const labels = {
     ok: "Found",
@@ -208,7 +208,9 @@ function StatusBadge({ status }: { status: ChannelResult["status"] }) {
   } as const;
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${styles[status]}`}>
+    <span
+      className={`border px-2 py-0.5 text-xs uppercase tracking-wider ${styles[status]}`}
+    >
       {labels[status]}
     </span>
   );

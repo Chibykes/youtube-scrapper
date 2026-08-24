@@ -24,8 +24,8 @@
   --color-accent-hover: var(--accent-hover);
   --color-success: var(--success);
   --color-danger: var(--danger);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
 }
 
 html {
@@ -50,4 +50,23 @@ input::placeholder {
 
 * {
   scrollbar-color: var(--surface-2) var(--background);
+}
+
+.bg-grid {
+  position: relative;
+  isolation: isolate;
+}
+
+.bg-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 85%);
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
 }
