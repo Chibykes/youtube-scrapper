@@ -4,7 +4,12 @@ import { mapWithConcurrency } from "@/lib/youtube";
 const API_BASE = "https://api.mails.so/v1";
 const BATCH_POLL_ATTEMPTS = 6;
 const BATCH_POLL_INTERVAL_MS = 2000;
-const BACKFILL_CONCURRENCY = 5;
+// mails.so silently omits already-cached emails from batch results (see
+// validateEmailsBulk below), so the backfill of individually-validated
+// "missing" emails needs to run at enough concurrency to finish well within
+// the API route's maxDuration even when most of a large batch comes back
+// missing.
+const BACKFILL_CONCURRENCY = 25;
 
 // mails.so's own guidance: a high score with a "deliverable" result
 // indicates a valid, usable address. Below this we treat the result as too
@@ -160,17 +165,18 @@ export async function validateEmailsBulk(
 ): Promise<MailsSoResult[]> {
   const apiKey = apiKeyOrThrow(apiKeyOverride);
   const byEmail = new Map<string, MailsSoResult>();
+  let batchId = "no-batch";
 
   try {
     const batchResult = await submitBatch(emails, apiKey);
-    const { id } = batchResult;
-    await debugDump(`mailsso-batch-${id}-submit`, batchResult);
+    batchId = batchResult.id;
+    await debugDump(`mailsso-batch-${batchId}-submit`, batchResult);
     for (let attempt = 0; attempt < BATCH_POLL_ATTEMPTS; attempt++) {
       await sleep(BATCH_POLL_INTERVAL_MS);
-      const job = await fetchBatch(id, apiKey);
-      console.log("================= FETCHED BATCH JOB ======================", job);
-      await debugDump(`mailsso-batch-${id}-poll-${attempt}`, job);
+      const job = await fetchBatch(batchId, apiKey);
       if (!job.finished_at) continue;
+
+      await debugDump(`mailsso-batch-${batchId}-result`, job);
 
       for (const raw of job.emails ?? []) {
         byEmail.set(raw.email, toResult(raw, raw.email));
@@ -181,6 +187,7 @@ export async function validateEmailsBulk(
     // Submission or polling failed outright — every email gets backfilled below.
   }
 
+  const fromBatch = byEmail.size;
   const missing = emails.filter((email) => !byEmail.has(email));
   if (missing.length > 0) {
     const backfilled = await mapWithConcurrency(missing, BACKFILL_CONCURRENCY, (email) =>
@@ -189,5 +196,12 @@ export async function validateEmailsBulk(
     for (const result of backfilled) byEmail.set(result.email, result);
   }
 
-  return emails.map((email) => byEmail.get(email)!);
+  const results = emails.map((email) => byEmail.get(email)!);
+  await debugDump(`mailsso-batch-${batchId}-summary`, {
+    submitted: emails.length,
+    returnedByBatch: fromBatch,
+    backfilled: missing.length,
+    finalResults: results.length,
+  });
+  return results;
 }
