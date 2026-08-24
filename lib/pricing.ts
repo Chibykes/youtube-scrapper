@@ -8,7 +8,7 @@ export const TOOL_COSTS = {
   emailScraper: null,
   commentScraper: null,
   // 1 YOSE per username validated — matches one mails.so lookup.
-  emailValidator: 1,
+  emailValidator: null,
   sendEmails: null,
 } as const;
 
