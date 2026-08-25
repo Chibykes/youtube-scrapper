@@ -183,17 +183,20 @@ export async function validateEmailsBulk(
       }
       break;
     }
-  } catch {
+  } catch (error) {
+    console.error("Error submitting or polling batch:", error);
     // Submission or polling failed outright — every email gets backfilled below.
   }
 
   const fromBatch = byEmail.size;
   const missing = emails.filter((email) => !byEmail.has(email));
+  let backfilled: MailsSoResult[] = [];
   if (missing.length > 0) {
-    const backfilled = await mapWithConcurrency(missing, BACKFILL_CONCURRENCY, (email) =>
+    backfilled = await mapWithConcurrency(missing, BACKFILL_CONCURRENCY, (email) =>
       validateEmail(email, apiKey)
     );
     for (const result of backfilled) byEmail.set(result.email, result);
+    await debugDump(`mailsso-batch-${batchId}-backfilled`, backfilled);
   }
 
   const results = emails.map((email) => byEmail.get(email)!);
