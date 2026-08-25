@@ -2,7 +2,7 @@
 export type ListCleanVerdict = "clean" | "dirty" | "unknown" | "error";
 
 /** Raw per-email record — the shape of one item from GET /verify/email/{email} and GET /downloads/json/{list_id}/{type}. */
-export type ListCleanEmailRecord = ListCleanDownloadData["result"][number];
+export type ListCleanEmailRecord = ListCleanDownloadData["data"]["result"][number];
 
 export type ListCleanJobStatus = "SUBMITTED" | "INPROCESS" | "COMPLETED";
 
@@ -67,6 +67,23 @@ export type ListCleanEnvelope<T> = {
   data: T;
 };
 
+/** POST /verify/email/batch payload. */
+export type VerifyEmailBatchPayload = {
+  emails: string[];
+};
+
+/** POST /verify/email/batch response data — listclean returns `list_id` as a
+ * string ("370124") despite the published spec claiming it's an integer,
+ * verified against a live response from the API playground. */
+export type VerifyEmailBatchData = {
+  list_id: string | number;
+};
+
+/** GET /downloads/json/{list_id}/{type} — the documented type enum only
+ * lists clean/dirty/unknown; "all" is listclean's own addition that pulls
+ * every category (including "error") in a single call. */
+export type ListCleanDownloadType = "all" | "clean" | "dirty" | "unknown";
+
 /**
  * GET /downloads/json/{list_id}/{type} wraps its payload in a second,
  * undocumented envelope on top of the usual one — verified against a live
@@ -74,21 +91,27 @@ export type ListCleanEnvelope<T> = {
  * ListCleanEnvelope<ListCleanEnvelope<ListCleanDownloadData>>.
  */
 export type ListCleanDownloadData = {
-  queue_name: string;
-  type: string;
-  sub_type: string;
-  total: number;
-  result: {
-    email: string;
-    status: ListCleanVerdict;
-    reason_code: string;
-    reason: string;
-    mx: string;
-    msp: string;
-    attributes: {
-      EMAIL: string;
-    };
-  }[];
+  success: number;
+  message: string;
+  error_code: number;
+  data: {
+    queue_name: string;
+    type: string;
+    sub_type: string;
+    total: number;
+    result: {
+      email: string;
+      status: ListCleanVerdict;
+      reason_code: string;
+      reason: string;
+      mx: string;
+      msp: string;
+      sort_order: number;
+      attributes: {
+        EMAIL: string;
+      };
+    }[];
+  };
 };
 
 export type EmailStatus = "valid" | "invalid" | "unknown";

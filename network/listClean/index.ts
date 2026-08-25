@@ -3,11 +3,13 @@ import { debugDump } from "@/lib/debugDump";
 import { mapWithConcurrency } from "@/lib/youtube";
 import type {
   ListCleanDownloadData,
+  ListCleanDownloadType,
   ListCleanEmailRecord,
   ListCleanEnvelope,
   ListCleanListInfo,
   ListCleanResult,
   ListCleanVerdict,
+  VerifyEmailBatchData,
 } from "@/network/listClean/types";
 
 // listclean's documented hard limit for POST /verify/email/batch.
@@ -87,13 +89,22 @@ export async function verifyEmail(
   return toResult(res.data?.data?.[0], email);
 }
 
-// listclean's real response has `list_id` as a string ("370124"), despite
-// the published spec claiming it's an integer — verified against a live
-// response from the API playground.
-async function submitBatch(emails: string[], apiKey: string): Promise<string> {
-  const res = await listCleanApi.post<
-    ListCleanEnvelope<{ list_id: string | number }>
-  >("/verify/email/batch", { emails }, { headers: authHeaders(apiKey) });
+/**
+ * POST /verify/email/batch — submits up to MAX_BATCH_SIZE emails as one
+ * async job and returns its list_id, used to poll {@link getListInfo} and
+ * fetch results via {@link downloadListResults}.
+ */
+export async function verifyEmailBatch(
+  emails: string[],
+  apiKeyOverride?: string
+): Promise<string> {
+  const apiKey = apiKeyOrThrow(apiKeyOverride);
+  const res = await listCleanApi.post<ListCleanEnvelope<VerifyEmailBatchData>>(
+    "/verify/email/batch",
+    { emails },
+    { headers: authHeaders(apiKey) }
+  );
+  console.log("========== VERIFY EMAIL BATCH ==========\n", res.data);
   if (res.status >= 400)
     throw new Error(`listclean batch submit failed (HTTP ${res.status})`);
 
@@ -105,14 +116,17 @@ async function submitBatch(emails: string[], apiKey: string): Promise<string> {
   return String(listId);
 }
 
-async function fetchListInfo(
+/** GET /lists/{list_id} — status and metadata for one submitted batch job. */
+export async function getListInfo(
   listId: string,
-  apiKey: string
+  apiKeyOverride?: string
 ): Promise<ListCleanListInfo> {
+  const apiKey = apiKeyOrThrow(apiKeyOverride);
   const res = await listCleanApi.get<ListCleanEnvelope<ListCleanListInfo>>(
     `/lists/${listId}`,
     { headers: authHeaders(apiKey) }
   );
+  console.log("========== GET LIST INFO ==========\n", res.data);
   if (res.status >= 400)
     throw new Error(`listclean list fetch failed (HTTP ${res.status})`);
 
@@ -121,29 +135,33 @@ async function fetchListInfo(
   return info;
 }
 
-// type=all pulls every category (clean/dirty/unknown/error) in a single
-// call, instead of one request per documented type value — which also
-// avoids silently missing "error"-status emails, since the download
-// endpoint's documented type enum only lists clean/dirty/unknown.
-async function downloadResults(
+/**
+ * GET /downloads/json/{list_id}/{type} — per-email verdicts for a completed
+ * batch job. Defaults to "all", listclean's own addition that pulls every
+ * category (including "error") in one call instead of one request per
+ * documented type value — which also avoids silently missing
+ * "error"-status emails.
+ */
+export async function downloadListResults(
   listId: string,
-  apiKey: string
+  type: ListCleanDownloadType = "all",
+  apiKeyOverride?: string
 ): Promise<ListCleanEmailRecord[]> {
+  const apiKey = apiKeyOrThrow(apiKeyOverride);
   const res = await listCleanApi
     .get<ListCleanEnvelope<ListCleanDownloadData>>(
-      `/downloads/json/${listId}/all`,
-      {
-        headers: authHeaders(apiKey),
-      }
+      `/downloads/json/${listId}/${type}`,
+      { headers: authHeaders(apiKey) }
     )
     .catch(() => null);
+    console.log("========== DOWNLOAD LIST RESULTS ==========\n", res?.data);
   if (!res || res.status >= 400) {
     throw new Error(
       `listclean download failed (HTTP ${res?.status ?? "request_failed"})`
     );
   }
 
-  return res.data?.data?.result ?? [];
+  return res.data?.data?.data?.result ?? [];
 }
 
 function sleep(ms: number) {
@@ -169,13 +187,14 @@ async function runListCleanChunk(
   const byEmail = new Map<string, ListCleanResult>();
 
   try {
-    const listId = await submitBatch(emails, apiKey);
+    const listId = await verifyEmailBatch(emails, apiKey);
     for (let attempt = 0; attempt < LIST_POLL_ATTEMPTS; attempt++) {
       await sleep(LIST_POLL_INTERVAL_MS);
-      const info = await fetchListInfo(listId, apiKey);
+      const info = await getListInfo(listId, apiKey);
       if (info.status !== "COMPLETED") continue;
-
-      const records = await downloadResults(listId, apiKey);
+      
+      await sleep(LIST_POLL_INTERVAL_MS);
+      const records = await downloadListResults(listId, "all", apiKey);
       await debugDump(`listclean-list-${listId}-result`, { info, records });
 
       for (const raw of records) {
@@ -209,7 +228,7 @@ export async function verifyEmailsBulk(
 ): Promise<ListCleanResult[]> {
   const apiKey = apiKeyOrThrow(apiKeyOverride);
   const byEmail = new Map<string, ListCleanResult>();
-  const runId = crypto.randomUUID();
+  const runId = Date.now();
 
   const chunks = chunk(emails, MAX_BATCH_SIZE);
   const chunkMaps = await mapWithConcurrency(
