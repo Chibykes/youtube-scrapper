@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { startWalletDeposit } from "@/network/internal";
 
 export default function DepositForm({ ngnRate }: { ngnRate: number }) {
   const [amountNgn, setAmountNgn] = useState("");
@@ -8,20 +9,17 @@ export default function DepositForm({ ngnRate }: { ngnRate: number }) {
   const [error, setError] = useState("");
 
   const parsed = Number(amountNgn);
-  const yoseAmount = Number.isFinite(parsed) && parsed > 0 ? parsed / ngnRate : 0;
+  const yoseAmount =
+    Number.isFinite(parsed) && parsed > 0 ? parsed / ngnRate : 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/wallet/deposit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountNgn: parsed }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
+      const res = await startWalletDeposit({ amountNgn: parsed });
+      const data = res.data;
+      if (res.status >= 400) {
         setError(data.error ?? "Failed to start deposit");
         setLoading(false);
         return;
@@ -34,7 +32,10 @@ export default function DepositForm({ ngnRate }: { ngnRate: number }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border border-border bg-surface p-5">
+    <form
+      onSubmit={handleSubmit}
+      className="border border-border bg-surface p-5"
+    >
       <label htmlFor="amountNgn" className="mb-2 block text-sm text-muted">
         Amount (NGN)
       </label>

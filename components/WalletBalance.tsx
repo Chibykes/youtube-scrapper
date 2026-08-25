@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getWalletBalance } from "@/network/internal";
 
 export default function WalletBalance() {
   const [balance, setBalance] = useState<number | null>(null);
@@ -9,8 +10,8 @@ export default function WalletBalance() {
   useEffect(() => {
     let cancelled = false;
     function refresh() {
-      fetch("/api/wallet")
-        .then((res) => (res.ok ? res.json() : null))
+      getWalletBalance()
+        .then((res) => (res.status < 400 ? res.data : null))
         .then((data) => {
           if (!cancelled && data) setBalance(data.balance);
         })

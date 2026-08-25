@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { validateEmails } from "@/network/internal";
 import { usernamesToEmailCandidates } from "@/lib/emailGuess";
 import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
@@ -25,7 +26,9 @@ export default function EmailValidatorPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [validations, setValidations] = useState<Map<string, Validation>>(new Map());
+  const [validations, setValidations] = useState<Map<string, Validation>>(
+    new Map()
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
@@ -85,14 +88,14 @@ export default function EmailValidatorPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/scrape/validate-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidates, apiKey: trimmedApiKey }),
-      });
-      const data = await res.json();
+      const res = await validateEmails({ candidates, apiKey: trimmedApiKey });
+      const data = res.data;
 
-      type ResultRow = { email: string; status: Validation["status"]; reason?: string };
+      type ResultRow = {
+        email: string;
+        status: Validation["status"];
+        reason?: string;
+      };
       const applyResults = (results: ResultRow[]) => {
         setValidations((prev) => {
           const next = new Map(prev);
@@ -101,10 +104,14 @@ export default function EmailValidatorPage() {
           }
           return next;
         });
-        setSelected(new Set(results.filter((r) => r.status === "valid").map((r) => r.email)));
+        setSelected(
+          new Set(
+            results.filter((r) => r.status === "valid").map((r) => r.email)
+          )
+        );
       };
 
-      if (!res.ok) {
+      if (res.status >= 400) {
         setError(data.error ?? "Something went wrong");
         if (Array.isArray(data.results)) applyResults(data.results);
       } else {
@@ -138,7 +145,9 @@ export default function EmailValidatorPage() {
       ...rows.map((r) => [r.username, r.email, r.status, r.reason ?? ""]),
     ];
     const csv = csvRows
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .map((row) =>
+        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+      )
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -151,7 +160,10 @@ export default function EmailValidatorPage() {
 
   function sendSelected() {
     if (selected.size === 0) return;
-    sessionStorage.setItem(SESSION_SEND_EMAILS_KEY, Array.from(selected).join("\n"));
+    sessionStorage.setItem(
+      SESSION_SEND_EMAILS_KEY,
+      Array.from(selected).join("\n")
+    );
     router.push("/dashboard/send-emails");
   }
 
@@ -170,12 +182,15 @@ export default function EmailValidatorPage() {
       <p className="mt-1 text-muted">
         Paste YouTube usernames (one per line) — a leading @ is dropped, and
         hyphenated names are truncated at the hyphen. The guessed Gmail
-        addresses show up instantly below; validating them against listclean
-        is what costs {CURRENCY} and needs a click.
+        addresses show up instantly below; validating them against listclean is
+        what costs {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
-        <label htmlFor="listcleanApiKey" className="mb-2 block text-sm text-muted">
+        <label
+          htmlFor="listcleanApiKey"
+          className="mb-2 block text-sm text-muted"
+        >
           listclean API key
         </label>
         <div className="relative">
@@ -197,10 +212,14 @@ export default function EmailValidatorPage() {
           </button>
         </div>
         <p className="mt-1.5 text-xs text-muted">
-          Stored only in your browser&apos;s local storage, never on our servers.
+          Stored only in your browser&apos;s local storage, never on our
+          servers.
         </p>
 
-        <label htmlFor="usernames" className="mb-2 mt-4 block text-sm text-muted">
+        <label
+          htmlFor="usernames"
+          className="mb-2 mt-4 block text-sm text-muted"
+        >
           Usernames
         </label>
         <textarea
@@ -213,9 +232,13 @@ export default function EmailValidatorPage() {
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
-            {candidates.length} email{candidates.length === 1 ? "" : "s"} guessed
+            {candidates.length} email{candidates.length === 1 ? "" : "s"}{" "}
+            guessed
             {COST_PER_VALIDATION > 0 && candidates.length > 0 && (
-              <> — validating costs {estimatedCost} {CURRENCY}</>
+              <>
+                {" "}
+                — validating costs {estimatedCost} {CURRENCY}
+              </>
             )}
           </span>
           <button
@@ -226,8 +249,8 @@ export default function EmailValidatorPage() {
             {loading
               ? "Validating..."
               : validatedCount > 0
-                ? "Re-validate"
-                : "Validate with listclean"}
+              ? "Re-validate"
+              : "Validate with listclean"}
           </button>
         </div>
       </div>
@@ -236,7 +259,10 @@ export default function EmailValidatorPage() {
         <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}{" "}
           {error.toLowerCase().includes("balance") && (
-            <Link href="/dashboard/wallet" className="underline hover:text-danger/80">
+            <Link
+              href="/dashboard/wallet"
+              className="underline hover:text-danger/80"
+            >
               Add funds
             </Link>
           )}
@@ -291,7 +317,9 @@ export default function EmailValidatorPage() {
                       />
                     </td>
                     <td className="px-4 py-3 text-foreground">{r.username}</td>
-                    <td className="px-4 py-3 font-mono text-foreground">{r.email}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">
+                      {r.email}
+                    </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={r.status} reason={r.reason} />
                     </td>

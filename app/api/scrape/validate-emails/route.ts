@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { verifyEmailsBulk } from "@/lib/listClean";
-import { getBalance, debitWallet, InsufficientBalanceError } from "@/lib/wallet";
+import { verifyEmailsBulk } from "@/network/listClean";
+import {
+  getBalance,
+  debitWallet,
+  InsufficientBalanceError,
+} from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
 export const maxDuration = 60;
@@ -26,8 +30,10 @@ function parseCandidates(input: unknown): Candidate[] {
   const candidates: Candidate[] = [];
 
   for (const item of input) {
-    const username = typeof item?.username === "string" ? item.username.trim() : "";
-    const email = typeof item?.email === "string" ? item.email.trim().toLowerCase() : "";
+    const username =
+      typeof item?.username === "string" ? item.username.trim() : "";
+    const email =
+      typeof item?.email === "string" ? item.email.trim().toLowerCase() : "";
     if (!username || !email || seen.has(email)) continue;
     seen.add(email);
     candidates.push({ username, email });
@@ -47,7 +53,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const apiKey =
-    typeof body?.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : undefined;
+    typeof body?.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey.trim()
+      : undefined;
   const candidates = parseCandidates(body?.candidates).slice(0, MAX_CANDIDATES);
 
   if (candidates.length === 0) {
@@ -102,7 +110,9 @@ export async function POST(request: NextRequest) {
       const wallet = await debitWallet({
         userId,
         amount: costPerValidation * results.length,
-        description: `Validated ${results.length} email${results.length === 1 ? "" : "s"} with listclean`,
+        description: `Validated ${results.length} email${
+          results.length === 1 ? "" : "s"
+        } with listclean`,
         metadata: { tool: "emailValidator", count: results.length },
       });
       balance = wallet.balance;
@@ -110,7 +120,8 @@ export async function POST(request: NextRequest) {
       if (err instanceof InsufficientBalanceError) {
         return NextResponse.json(
           {
-            error: "Balance ran out mid-run. Results below were still validated.",
+            error:
+              "Balance ran out mid-run. Results below were still validated.",
             code: "insufficient_balance",
             results,
           },

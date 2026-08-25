@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { sendEmails } from "@/network/internal";
 
 type SendResult = {
   email: string;
@@ -36,9 +37,10 @@ export default function SendEmailsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SendResponse | null>(null);
-  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
-    null
-  );
+  const [batchProgress, setBatchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
   // after mount — reading them in a lazy initializer instead would make the
@@ -102,19 +104,15 @@ export default function SendEmailsPage() {
     const aggregated: SendResult[] = [];
     try {
       for (const chunk of chunks) {
-        const res = await fetch("/api/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            emails: chunk.join("\n"),
-            subject,
-            message,
-            senderEmail,
-            senderPassword,
-          }),
+        const res = await sendEmails({
+          emails: chunk.join("\n"),
+          subject,
+          message,
+          senderEmail,
+          senderPassword,
         });
-        const data = await res.json();
-        if (!res.ok) {
+        const data = res.data;
+        if (res.status >= 400) {
           setError(data.error || "Failed to send emails");
           break;
         }
@@ -129,7 +127,9 @@ export default function SendEmailsPage() {
         });
       }
     } catch {
-      setError("Something went wrong partway through sending. Recipients not yet sent to were skipped.");
+      setError(
+        "Something went wrong partway through sending. Recipients not yet sent to were skipped."
+      );
     } finally {
       setSending(false);
       setBatchProgress(null);
@@ -160,9 +160,12 @@ export default function SendEmailsPage() {
 
           <div className="space-y-2 border border-amber-400/30 bg-amber-400/[0.06] p-3.5">
             <p className="text-xs leading-relaxed text-amber-300">
-              <strong className="font-medium">This isn&apos;t your regular Gmail password.</strong>{" "}
-              Google requires a 16-character <strong className="font-medium">App Password</strong>{" "}
-              for apps like this one. Here&apos;s how to get one:
+              <strong className="font-medium">
+                This isn&apos;t your regular Gmail password.
+              </strong>{" "}
+              Google requires a 16-character{" "}
+              <strong className="font-medium">App Password</strong> for apps
+              like this one. Here&apos;s how to get one:
             </p>
             <ol className="list-inside list-decimal space-y-1 text-xs leading-relaxed text-amber-300/90">
               <li>
@@ -192,7 +195,10 @@ export default function SendEmailsPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="senderEmail" className="text-sm font-medium text-foreground">
+            <label
+              htmlFor="senderEmail"
+              className="text-sm font-medium text-foreground"
+            >
               Your Gmail address
             </label>
             <input
@@ -208,7 +214,10 @@ export default function SendEmailsPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="senderPassword" className="text-sm font-medium text-foreground">
+            <label
+              htmlFor="senderPassword"
+              className="text-sm font-medium text-foreground"
+            >
               Gmail App Password
             </label>
             <div className="relative">
@@ -231,14 +240,18 @@ export default function SendEmailsPage() {
               </button>
             </div>
             <p className="text-xs text-muted">
-              Stored only in your browser&apos;s local storage, never on our servers.
+              Stored only in your browser&apos;s local storage, never on our
+              servers.
             </p>
           </div>
         </div>
 
         <div className="space-y-2 p-5">
           <div className="flex items-center justify-between">
-            <label htmlFor="emails" className="text-sm font-medium text-foreground">
+            <label
+              htmlFor="emails"
+              className="text-sm font-medium text-foreground"
+            >
               Recipients
             </label>
             <span className="text-xs tabular-nums text-muted">
@@ -262,7 +275,10 @@ export default function SendEmailsPage() {
         </div>
 
         <div className="space-y-2 p-5">
-          <label htmlFor="subject" className="text-sm font-medium text-foreground">
+          <label
+            htmlFor="subject"
+            className="text-sm font-medium text-foreground"
+          >
             Subject
           </label>
           <input
@@ -276,7 +292,10 @@ export default function SendEmailsPage() {
         </div>
 
         <div className="space-y-2 p-5">
-          <label htmlFor="message" className="text-sm font-medium text-foreground">
+          <label
+            htmlFor="message"
+            className="text-sm font-medium text-foreground"
+          >
             Message
           </label>
           <textarea
@@ -302,8 +321,12 @@ export default function SendEmailsPage() {
             className="w-full bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending
-              ? `Sending... ${batchProgress?.done ?? 0}/${batchProgress?.total ?? recipientCount}`
-              : `Send to ${recipientCount || 0} recipient${recipientCount === 1 ? "" : "s"}`}
+              ? `Sending... ${batchProgress?.done ?? 0}/${
+                  batchProgress?.total ?? recipientCount
+                }`
+              : `Send to ${recipientCount || 0} recipient${
+                  recipientCount === 1 ? "" : "s"
+                }`}
           </button>
         </div>
       </form>
@@ -313,7 +336,9 @@ export default function SendEmailsPage() {
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <h2 className="text-sm font-medium text-foreground">
               {result.failed === 0
-                ? `All ${result.succeeded} email${result.succeeded === 1 ? "" : "s"} sent successfully`
+                ? `All ${result.succeeded} email${
+                    result.succeeded === 1 ? "" : "s"
+                  } sent successfully`
                 : `${result.succeeded} sent, ${result.failed} failed`}
             </h2>
             <span

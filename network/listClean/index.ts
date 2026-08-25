@@ -1,7 +1,14 @@
+import { createHttpClient } from "@/network/httpClient";
 import { debugDump } from "@/lib/debugDump";
 import { mapWithConcurrency } from "@/lib/youtube";
-
-const API_BASE = "https://api.listclean.xyz/v1";
+import type {
+  ListCleanDownloadData,
+  ListCleanEmailRecord,
+  ListCleanEnvelope,
+  ListCleanListInfo,
+  ListCleanResult,
+  ListCleanVerdict,
+} from "@/network/listClean/types";
 
 // listclean's documented hard limit for POST /verify/email/batch.
 const MAX_BATCH_SIZE = 3000;
@@ -16,108 +23,9 @@ const LIST_POLL_INTERVAL_MS = 3000;
 // gets a real-time verdict from the single-email endpoint instead.
 const BACKFILL_CONCURRENCY = 25;
 
-/** listclean's per-email verdict. See https://api.listclean.xyz. */
-export type ListCleanVerdict = "clean" | "dirty" | "unknown" | "error";
-
-/** Raw per-email record — the shape of one item from GET /verify/email/{email} and GET /downloads/json/{list_id}/{type}. */
-export type ListCleanEmailRecord = ListCleanDownloadData["result"][number];
-
-export type ListCleanJobStatus = "SUBMITTED" | "INPROCESS" | "COMPLETED";
-
-/** GET /lists/{list_id} response data. */
-export type ListCleanListInfo = {
-  list_id: number;
-  filename: string;
-  request_time: string;
-  status: ListCleanJobStatus;
-  upload_id: string;
-  size_in_bytes: number;
-  size_for_human: string;
-  allow_download: number;
-  analytics: {
-    summary: {
-      total: string;
-      duplicate: number;
-      dirty: {
-        count: number;
-        perc: number;
-      };
-      clean: {
-        count: number;
-        perc: number;
-      };
-      unknown: {
-        count: number;
-        perc: number;
-      };
-    };
-    dirty_summary: [
-      {
-        count: number;
-        perc: number;
-        dirty_type: string;
-      }
-    ];
-    clean_summary: [
-      {
-        count: number;
-        perc: number;
-        clean_type: string;
-      }
-    ];
-  };
-  cost: {
-    rate: {
-      INR: number;
-      USD: number;
-    };
-    cost: {
-      INR: number;
-      USD: number;
-    };
-  };
-};
-
-type ListCleanEnvelope<T> = {
-  success: 0 | 1;
-  message: string;
-  error_code?: number;
-  data: T;
-};
-
-/**
- * GET /downloads/json/{list_id}/{type} wraps its payload in a second,
- * undocumented envelope on top of the usual one — verified against a live
- * response, not just the (looser) published spec. So the full response is
- * ListCleanEnvelope<ListCleanEnvelope<ListCleanDownloadData>>.
- */
-type ListCleanDownloadData = {
-  queue_name: string;
-  type: string;
-  sub_type: string;
-  total: number;
-  result: {
-    email: string;
-    status: ListCleanVerdict;
-    reason_code: string;
-    reason: string;
-    mx: string;
-    msp: string;
-    attributes: {
-      EMAIL: string;
-    };
-  }[];
-};
-
-export type EmailStatus = "valid" | "invalid" | "unknown";
-
-/** Our own valid/invalid/unknown verdict, derived from listclean's raw status. */
-export type ListCleanResult = {
-  email: string;
-  status: EmailStatus;
-  verdict: ListCleanVerdict;
-  reason: string;
-};
+const listCleanApi = createHttpClient({
+  baseURL: "https://api.listclean.xyz/v1",
+});
 
 function apiKeyOrThrow(override: string | undefined): string {
   const key = override || process.env.LISTCLEAN_API_KEY;
@@ -128,7 +36,7 @@ function apiKeyOrThrow(override: string | undefined): string {
 // listclean's `status` is "clean" | "dirty" | "unknown" | "error". "clean"
 // and "dirty" are unambiguous; "unknown"/"error" both mean "couldn't tell",
 // so both map to our own "unknown".
-function statusFor(verdict: ListCleanVerdict): EmailStatus {
+function statusFor(verdict: ListCleanVerdict): ListCleanResult["status"] {
   if (verdict === "clean") return "valid";
   if (verdict === "dirty") return "invalid";
   return "unknown";
@@ -149,7 +57,7 @@ function toResult(
   };
 }
 
-function authHeaders(apiKey: string): HeadersInit {
+function authHeaders(apiKey: string): Record<string, string> {
   return { "X-Auth-Token": apiKey };
 }
 
@@ -158,14 +66,15 @@ export async function verifyEmail(
   apiKeyOverride?: string
 ): Promise<ListCleanResult> {
   const apiKey = apiKeyOrThrow(apiKeyOverride);
-  const url = `${API_BASE}/verify/email/${encodeURIComponent(email)}`;
 
-  const res = await fetch(url, {
-    headers: authHeaders(apiKey),
-    cache: "no-store",
-  }).catch(() => null);
+  const res = await listCleanApi
+    .get<ListCleanEnvelope<ListCleanEmailRecord[]>>(
+      `/verify/email/${encodeURIComponent(email)}`,
+      { headers: authHeaders(apiKey) }
+    )
+    .catch(() => null);
 
-  if (!res || !res.ok) {
+  if (!res || res.status >= 400) {
     return toResult(
       {
         reason: res ? `http_${res.status}` : "request_failed",
@@ -175,30 +84,20 @@ export async function verifyEmail(
     );
   }
 
-  const body = (await res.json().catch(() => null)) as ListCleanEnvelope<
-    ListCleanEmailRecord[]
-  > | null;
-  return toResult(body?.data?.[0], email);
+  return toResult(res.data?.data?.[0], email);
 }
 
 // listclean's real response has `list_id` as a string ("370124"), despite
 // the published spec claiming it's an integer — verified against a live
 // response from the API playground.
 async function submitBatch(emails: string[], apiKey: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/verify/email/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders(apiKey) },
-    body: JSON.stringify({ emails }),
-    cache: "no-store",
-  });
-  if (!res.ok)
+  const res = await listCleanApi.post<
+    ListCleanEnvelope<{ list_id: string | number }>
+  >("/verify/email/batch", { emails }, { headers: authHeaders(apiKey) });
+  if (res.status >= 400)
     throw new Error(`listclean batch submit failed (HTTP ${res.status})`);
 
-  const body = (await res.json()) as ListCleanEnvelope<{
-    list_id: string | number;
-  }>;
-  console.log("body", body);
-  const listId = body.data?.list_id;
+  const listId = res.data.data?.list_id;
   if (listId === undefined || listId === null) {
     throw new Error("listclean batch submit response had no list_id");
   }
@@ -210,15 +109,14 @@ async function fetchListInfo(
   listId: string,
   apiKey: string
 ): Promise<ListCleanListInfo> {
-  const res = await fetch(`${API_BASE}/lists/${listId}`, {
-    headers: authHeaders(apiKey),
-    cache: "no-store",
-  });
-  if (!res.ok)
+  const res = await listCleanApi.get<ListCleanEnvelope<ListCleanListInfo>>(
+    `/lists/${listId}`,
+    { headers: authHeaders(apiKey) }
+  );
+  if (res.status >= 400)
     throw new Error(`listclean list fetch failed (HTTP ${res.status})`);
 
-  const body = (await res.json()) as ListCleanEnvelope<ListCleanListInfo>;
-  const info = body.data;
+  const info = res.data.data;
   if (!info) throw new Error("listclean list fetch response had no data");
   return info;
 }
@@ -231,18 +129,21 @@ async function downloadResults(
   listId: string,
   apiKey: string
 ): Promise<ListCleanEmailRecord[]> {
-  const res = await fetch(`${API_BASE}/downloads/json/${listId}/all`, {
-    headers: authHeaders(apiKey),
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`listclean download failed (HTTP ${res.status})`);
+  const res = await listCleanApi
+    .get<ListCleanEnvelope<ListCleanDownloadData>>(
+      `/downloads/json/${listId}/all`,
+      {
+        headers: authHeaders(apiKey),
+      }
+    )
+    .catch(() => null);
+  if (!res || res.status >= 400) {
+    throw new Error(
+      `listclean download failed (HTTP ${res?.status ?? "request_failed"})`
+    );
   }
 
-  const body = (await res
-    .json()
-    .catch(() => null)) as ListCleanEnvelope<ListCleanDownloadData> | null;
-  return body?.data?.result ?? [];
+  return res.data?.data?.result ?? [];
 }
 
 function sleep(ms: number) {
