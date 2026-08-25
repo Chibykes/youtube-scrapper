@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchChannelAboutPage } from "@/network/channelScraper";
 import {
   extractChannelTitle,
   extractEmails,
@@ -32,27 +33,20 @@ async function scrapeChannel(input: string): Promise<ChannelResult> {
   }
 
   try {
-    const res = await fetch(aboutUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      cache: "no-store",
-    });
+    const page = await fetchChannelAboutPage(aboutUrl);
 
-    if (!res.ok) {
+    if (!page.html) {
       return {
         input,
         channelTitle: null,
         aboutUrl,
         emails: [],
         status: "error",
-        error: `HTTP ${res.status}`,
+        error: `HTTP ${page.status}`,
       };
     }
 
-    const html = await res.text();
+    const html = page.html;
     const emails = extractEmails(html);
     const channelTitle = extractChannelTitle(html);
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { scrapeChannelEmails } from "@/network/internal";
 
 type ChannelResult = {
   input: string;
@@ -19,7 +20,11 @@ export default function EmailScraperPage() {
   const [results, setResults] = useState<ChannelResult[]>([]);
 
   const channelCount = useMemo(
-    () => raw.split("\n").map((l) => l.trim()).filter(Boolean).length,
+    () =>
+      raw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean).length,
     [raw]
   );
 
@@ -38,13 +43,9 @@ export default function EmailScraperPage() {
     setResults([]);
 
     try {
-      const res = await fetch("/api/scrape/emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channels }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
+      const res = await scrapeChannelEmails({ channels });
+      const data = res.data;
+      if (res.status >= 400) {
         setError(data.error ?? "Something went wrong");
       } else {
         setResults(data.results);
@@ -68,7 +69,9 @@ export default function EmailScraperPage() {
       ]),
     ];
     const csv = rows
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .map((row) =>
+        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+      )
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -92,8 +95,8 @@ export default function EmailScraperPage() {
         Channel Email Scraper
       </h1>
       <p className="mt-1 text-muted">
-        Paste one channel per line — handles (@name), full URLs, or channel
-        IDs all work. We scan each channel&apos;s About page for visible email
+        Paste one channel per line — handles (@name), full URLs, or channel IDs
+        all work. We scan each channel&apos;s About page for visible email
         addresses.
       </p>
 
@@ -102,7 +105,9 @@ export default function EmailScraperPage() {
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           rows={8}
-          placeholder={"@mkbhd\nhttps://www.youtube.com/@veritasium\nUCX6OQ3DkcsbYNE6H8uQQuVA"}
+          placeholder={
+            "@mkbhd\nhttps://www.youtube.com/@veritasium\nUCX6OQ3DkcsbYNE6H8uQQuVA"
+          }
           className="w-full resize-y border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
         />
         <div className="mt-4 flex items-center justify-between">
@@ -170,7 +175,10 @@ export default function EmailScraperPage() {
                       {r.emails.length > 0 ? (
                         <div className="flex flex-col gap-1">
                           {r.emails.map((email) => (
-                            <span key={email} className="font-mono text-foreground">
+                            <span
+                              key={email}
+                              className="font-mono text-foreground"
+                            >
                               {email}
                             </span>
                           ))}

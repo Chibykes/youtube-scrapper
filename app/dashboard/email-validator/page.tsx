@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { usernamesToEmailCandidates } from "@/lib/emailGuess";
+import { validateEmails, validateEmail } from "@/network/internal";
+import { usernamesToEmailCandidates, type EmailCandidate } from "@/lib/emailGuess";
 import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
 type ValidationStatus = "pending" | "valid" | "invalid" | "unknown";
@@ -15,7 +16,7 @@ type Validation = {
 
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
-const STORAGE_MAILSO_KEY_KEY = "ytscraper:mailsoApiKey";
+const STORAGE_LISTCLEAN_KEY_KEY = "ytscraper:listcleanApiKey";
 const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
 
 export default function EmailValidatorPage() {
@@ -25,8 +26,11 @@ export default function EmailValidatorPage() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [validations, setValidations] = useState<Map<string, Validation>>(new Map());
+  const [validations, setValidations] = useState<Map<string, Validation>>(
+    new Map()
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [revalidating, setRevalidating] = useState<Set<string>>(new Set());
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
   // after mount — reading them in the initializer instead would make the
@@ -34,7 +38,7 @@ export default function EmailValidatorPage() {
   // trigger a hydration mismatch.
   useEffect(() => {
     const pending = sessionStorage.getItem(SESSION_USERNAMES_KEY);
-    const storedApiKey = localStorage.getItem(STORAGE_MAILSO_KEY_KEY);
+    const storedApiKey = localStorage.getItem(STORAGE_LISTCLEAN_KEY_KEY);
     if (pending) sessionStorage.removeItem(SESSION_USERNAMES_KEY);
 
     /* eslint-disable react-hooks/set-state-in-effect -- one-time sync from browser storage on mount, not derivable from props/state */
@@ -45,7 +49,7 @@ export default function EmailValidatorPage() {
 
   // Guessing the Gmail address from a username is pure client-side string
   // manipulation (see lib/emailGuess.ts) — no need to round-trip to the
-  // server just to show the list. Only validating against mails.so costs
+  // server just to show the list. Only validating against listclean costs
   // money and needs a server.
   const candidates = useMemo(() => {
     const usernames = raw
@@ -75,24 +79,25 @@ export default function EmailValidatorPage() {
   const validatedCount = rows.filter((r) => r.status !== "pending").length;
   const estimatedCost = candidates.length * COST_PER_VALIDATION;
 
-  async function handleValidate() {
-    if (candidates.length === 0) return;
+  async function runValidation(candidatesToValidate: EmailCandidate[]) {
+    if (candidatesToValidate.length === 0) return;
 
     const trimmedApiKey = apiKey.trim();
-    localStorage.setItem(STORAGE_MAILSO_KEY_KEY, trimmedApiKey);
-
-    setLoading(true);
+    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
     setError("");
 
     try {
-      const res = await fetch("/api/scrape/validate-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidates, apiKey: trimmedApiKey }),
+      const res = await validateEmails({
+        candidates: candidatesToValidate,
+        apiKey: trimmedApiKey,
       });
-      const data = await res.json();
+      const data = res.data;
 
-      type ResultRow = { email: string; status: Validation["status"]; reason?: string };
+      type ResultRow = {
+        email: string;
+        status: Validation["status"];
+        reason?: string;
+      };
       const applyResults = (results: ResultRow[]) => {
         setValidations((prev) => {
           const next = new Map(prev);
@@ -101,10 +106,17 @@ export default function EmailValidatorPage() {
           }
           return next;
         });
-        setSelected(new Set(results.filter((r) => r.status === "valid").map((r) => r.email)));
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const r of results) {
+            if (r.status === "valid") next.add(r.email);
+            else next.delete(r.email);
+          }
+          return next;
+        });
       };
 
-      if (!res.ok) {
+      if (res.status >= 400) {
         setError(data.error ?? "Something went wrong");
         if (Array.isArray(data.results)) applyResults(data.results);
       } else {
@@ -115,8 +127,66 @@ export default function EmailValidatorPage() {
       }
     } catch {
       setError("Failed to reach the server");
+    }
+  }
+
+  async function handleValidate() {
+    if (candidates.length === 0) return;
+    setLoading(true);
+    await runValidation(candidates);
+    setLoading(false);
+  }
+
+  async function revalidateOne(candidate: EmailCandidate) {
+    setRevalidating((prev) => new Set(prev).add(candidate.email));
+    setError("");
+
+    const trimmedApiKey = apiKey.trim();
+    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
+
+    try {
+      const res = await validateEmail({
+        username: candidate.username,
+        email: candidate.email,
+        apiKey: trimmedApiKey,
+      });
+      const data = res.data;
+
+      const applyResult = (result: {
+        email: string;
+        status: Validation["status"];
+        reason?: string;
+      }) => {
+        setValidations((prev) => {
+          const next = new Map(prev);
+          next.set(result.email, { status: result.status, reason: result.reason });
+          return next;
+        });
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (result.status === "valid") next.add(result.email);
+          else next.delete(result.email);
+          return next;
+        });
+      };
+
+      if (res.status >= 400) {
+        setError(data.error ?? "Something went wrong");
+        if (data.result) applyResult(data.result);
+      } else {
+        applyResult(data.result);
+        if (typeof data.balance === "number") {
+          window.dispatchEvent(new Event("wallet:updated"));
+        }
+      }
+    } catch {
+      setError("Failed to reach the server");
     } finally {
-      setLoading(false);
+      setRevalidating((prev) => {
+        const next = new Set(prev);
+        next.delete(candidate.email);
+        return next;
+      });
     }
   }
 
@@ -138,7 +208,9 @@ export default function EmailValidatorPage() {
       ...rows.map((r) => [r.username, r.email, r.status, r.reason ?? ""]),
     ];
     const csv = csvRows
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .map((row) =>
+        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+      )
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -151,7 +223,10 @@ export default function EmailValidatorPage() {
 
   function sendSelected() {
     if (selected.size === 0) return;
-    sessionStorage.setItem(SESSION_SEND_EMAILS_KEY, Array.from(selected).join("\n"));
+    sessionStorage.setItem(
+      SESSION_SEND_EMAILS_KEY,
+      Array.from(selected).join("\n")
+    );
     router.push("/dashboard/send-emails");
   }
 
@@ -168,23 +243,28 @@ export default function EmailValidatorPage() {
         Username → Email Validator
       </h1>
       <p className="mt-1 text-muted">
-        Paste YouTube usernames (one per line) — a leading @ is dropped, and
-        hyphenated names are truncated at the hyphen. The guessed Gmail
-        addresses show up instantly below; validating them against mails.so
-        is what costs {CURRENCY} and needs a click.
+        Paste YouTube usernames or full email addresses, one per line — a
+        leading @ is dropped from usernames, and hyphenated names are
+        truncated at the hyphen to guess a Gmail address. Anything that&apos;s
+        already a complete email is used as-is, unchanged. The list shows up
+        instantly below; validating it against listclean is what costs{" "}
+        {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
-        <label htmlFor="mailsoApiKey" className="mb-2 block text-sm text-muted">
-          mails.so API key
+        <label
+          htmlFor="listcleanApiKey"
+          className="mb-2 block text-sm text-muted"
+        >
+          listclean API key
         </label>
         <div className="relative">
           <input
-            id="mailsoApiKey"
+            id="listcleanApiKey"
             type={showApiKey ? "text" : "password"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Your mails.so API key"
+            placeholder="Your listclean API key"
             autoComplete="off"
             className="w-full border border-border bg-surface-2 px-4 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
@@ -197,46 +277,88 @@ export default function EmailValidatorPage() {
           </button>
         </div>
         <p className="mt-1.5 text-xs text-muted">
-          Stored only in your browser&apos;s local storage, never on our servers.
+          Stored only in your browser&apos;s local storage, never on our
+          servers.
         </p>
 
-        <label htmlFor="usernames" className="mb-2 mt-4 block text-sm text-muted">
-          Usernames
+        <label
+          htmlFor="usernames"
+          className="mb-2 mt-4 block text-sm text-muted"
+        >
+          Usernames or emails
         </label>
         <textarea
           id="usernames"
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           rows={8}
-          placeholder={"mrbeast\ncool-guy99\n@johndoe123"}
+          placeholder={"mrbeast\ncool-guy99\n@johndoe123\njane@example.com"}
           className="w-full resize-y border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
-            {candidates.length} email{candidates.length === 1 ? "" : "s"} guessed
+            {candidates.length} email{candidates.length === 1 ? "" : "s"} ready
             {COST_PER_VALIDATION > 0 && candidates.length > 0 && (
-              <> — validating costs {estimatedCost} {CURRENCY}</>
+              <>
+                {" "}
+                — validating costs {estimatedCost} {CURRENCY}
+              </>
             )}
           </span>
           <button
             onClick={handleValidate}
             disabled={loading || candidates.length === 0}
-            className="bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {loading && (
+              <svg
+                className="h-4 w-4 animate-spin"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+            )}
             {loading
               ? "Validating..."
               : validatedCount > 0
-                ? "Re-validate"
-                : "Validate with mails.so"}
+              ? "Re-validate"
+              : "Validate with listclean"}
           </button>
         </div>
       </div>
+
+      <p className="mt-4 flex items-start gap-2 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
+        <i className="ri-information-line mt-0.5 shrink-0 text-base" aria-hidden />
+        <span>
+          Validation can take up to 5 minutes depending on how many emails
+          you submit — larger lists are processed in batches behind the
+          scenes.
+        </span>
+      </p>
 
       {error && (
         <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {error}{" "}
           {error.toLowerCase().includes("balance") && (
-            <Link href="/dashboard/wallet" className="underline hover:text-danger/80">
+            <Link
+              href="/dashboard/wallet"
+              className="underline hover:text-danger/80"
+            >
               Add funds
             </Link>
           )}
@@ -249,7 +371,7 @@ export default function EmailValidatorPage() {
             <h2 className="font-medium text-foreground">
               {validatedCount > 0
                 ? `${validCount} of ${rows.length} validated as deliverable`
-                : `${rows.length} guessed, not yet validated`}
+                : `${rows.length} ready, not yet validated`}
             </h2>
             <div className="flex items-center gap-3">
               <button
@@ -274,29 +396,56 @@ export default function EmailValidatorPage() {
                 <tr>
                   <th className="w-10 px-4 py-3" />
                   <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Guessed email</th>
+                  <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="w-10 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {rows.map((r) => (
-                  <tr key={r.email} className="bg-surface">
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.email)}
-                        onChange={() => toggleSelected(r.email)}
-                        disabled={r.status !== "valid"}
-                        className="h-4 w-4 accent-accent disabled:opacity-30"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-foreground">{r.username}</td>
-                    <td className="px-4 py-3 font-mono text-foreground">{r.email}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={r.status} reason={r.reason} />
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const isRevalidating = revalidating.has(r.email);
+                  return (
+                    <tr key={r.email} className="bg-surface">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(r.email)}
+                          onChange={() => toggleSelected(r.email)}
+                          disabled={r.status !== "valid"}
+                          className="h-4 w-4 accent-accent disabled:opacity-30"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-foreground">
+                        {r.username}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-foreground">
+                        {r.email}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={r.status} reason={r.reason} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            revalidateOne({ username: r.username, email: r.email })
+                          }
+                          disabled={loading || isRevalidating}
+                          title="Re-validate this email"
+                          aria-label="Re-validate this email"
+                          className="text-danger transition-colors hover:text-danger/70 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <i
+                            className={`ri-refresh-line text-base ${
+                              isRevalidating ? "animate-spin" : ""
+                            }`}
+                            aria-hidden
+                          />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,7 +1,14 @@
+import { createHttpClient } from "@/network/httpClient";
 import { debugDump } from "@/lib/debugDump";
 import { mapWithConcurrency } from "@/lib/youtube";
+import type {
+  MailsSoBatch,
+  MailsSoEmail,
+  MailsSoResult,
+  MailsSoValidateResponse,
+  MailsSoVerdict,
+} from "@/network/mailsSo/types";
 
-const API_BASE = "https://api.mails.so/v1";
 const BATCH_POLL_ATTEMPTS = 6;
 const BATCH_POLL_INTERVAL_MS = 2000;
 // mails.so silently omits already-cached emails from batch results (see
@@ -16,63 +23,16 @@ const BACKFILL_CONCURRENCY = 25;
 // uncertain to call valid. See https://docs.mails.so/response.
 const SCORE_VALID_THRESHOLD = 50;
 
-/** mails.so's `result` verdict. Documented values: docs.mails.so/response. */
-export type MailsSoVerdict = "deliverable" | "undeliverable" | "risky" | "unknown";
-
-/**
- * Raw per-email result shape returned by both `GET /v1/validate` and
- * `GET /v1/batch/:id` (each entry of its `emails` array) — see
- * https://docs.mails.so/bulk.
- */
-export type MailsSoEmail = {
-  id: string;
-  email: string;
-  username: string | null;
-  domain: string | null;
-  mx_record: string | null;
-  score: number;
-  isv_format: boolean;
-  isv_domain: boolean;
-  isv_mx: boolean | null;
-  isv_noblock: boolean;
-  isv_nocatchall: boolean;
-  isv_nogeneric: boolean;
-  is_free: boolean;
-  result: MailsSoVerdict;
-  reason: string;
-};
-
-/** `POST /v1/batch` response and the shape returned by `GET /v1/batch/:id`. */
-export type MailsSoBatch = {
-  id: string;
-  name: string | null;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-  finished_at: string | null;
-  user_id: string;
-  size: number;
-  emails?: MailsSoEmail[];
-};
-
-export type EmailStatus = "valid" | "invalid" | "unknown";
-
-/** Our own valid/invalid/unknown verdict, derived from mails.so's raw result. */
-export type MailsSoResult = {
-  email: string;
-  status: EmailStatus;
-  result: MailsSoVerdict;
-  reason: string;
-  score: number;
-  isFree: boolean | null;
-  isDisposable: boolean;
-  isCatchAll: boolean;
-};
+const mailsSoApi = createHttpClient({ baseURL: "https://api.mails.so/v1" });
 
 function apiKeyOrThrow(override: string | undefined): string {
   const key = override || process.env.MAILSO_API_KEY;
   if (!key) throw new Error("No mails.so API key provided");
   return key;
+}
+
+function authHeaders(apiKey: string): Record<string, string> {
+  return { "x-mails-api-key": apiKey };
 }
 
 // mails.so's `result` is "deliverable" | "undeliverable" | "risky" |
@@ -84,7 +44,12 @@ function statusFor(result: MailsSoVerdict, score: number): EmailStatus {
   return score >= SCORE_VALID_THRESHOLD ? "valid" : "unknown";
 }
 
-function toResult(raw: Partial<MailsSoEmail> | undefined, fallbackEmail: string): MailsSoResult {
+type EmailStatus = "valid" | "invalid" | "unknown";
+
+function toResult(
+  raw: Partial<MailsSoEmail> | undefined,
+  fallbackEmail: string
+): MailsSoResult {
   const email = raw?.email ?? fallbackEmail;
   const result = raw?.result ?? "unknown";
   const score = typeof raw?.score === "number" ? raw.score : 0;
@@ -106,40 +71,45 @@ export async function validateEmail(
   apiKeyOverride?: string
 ): Promise<MailsSoResult> {
   const apiKey = apiKeyOrThrow(apiKeyOverride);
-  const url = new URL(`${API_BASE}/validate`);
-  url.searchParams.set("email", email);
 
-  const res = await fetch(url, {
-    headers: { "x-mails-api-key": apiKey },
-    cache: "no-store",
-  }).catch(() => null);
+  const res = await mailsSoApi
+    .get<MailsSoValidateResponse>("/validate", {
+      params: { email },
+      headers: authHeaders(apiKey),
+    })
+    .catch(() => null);
 
-  if (!res || !res.ok) {
-    return toResult({ reason: res ? `http_${res.status}` : "request_failed" }, email);
+  if (!res || res.status >= 400) {
+    return toResult(
+      { reason: res ? `http_${res.status}` : "request_failed" },
+      email
+    );
   }
 
-  const body = (await res.json().catch(() => null)) as { data?: MailsSoEmail } | null;
-  return toResult(body?.data, email);
+  return toResult(res.data?.data, email);
 }
 
-async function submitBatch(emails: string[], apiKey: string): Promise<MailsSoBatch> {
-  const res = await fetch(`${API_BASE}/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-mails-api-key": apiKey },
-    body: JSON.stringify({ emails }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`mails.so batch submit failed (HTTP ${res.status})`);
-  return res.json();
+async function submitBatch(
+  emails: string[],
+  apiKey: string
+): Promise<MailsSoBatch> {
+  const res = await mailsSoApi.post<MailsSoBatch>(
+    "/batch",
+    { emails },
+    { headers: authHeaders(apiKey) }
+  );
+  if (res.status >= 400)
+    throw new Error(`mails.so batch submit failed (HTTP ${res.status})`);
+  return res.data;
 }
 
 async function fetchBatch(id: string, apiKey: string): Promise<MailsSoBatch> {
-  const res = await fetch(`${API_BASE}/batch/${id}`, {
-    headers: { "x-mails-api-key": apiKey },
-    cache: "no-store",
+  const res = await mailsSoApi.get<MailsSoBatch>(`/batch/${id}`, {
+    headers: authHeaders(apiKey),
   });
-  if (!res.ok) throw new Error(`mails.so batch fetch failed (HTTP ${res.status})`);
-  return res.json();
+  if (res.status >= 400)
+    throw new Error(`mails.so batch fetch failed (HTTP ${res.status})`);
+  return res.data;
 }
 
 function sleep(ms: number) {
@@ -183,17 +153,22 @@ export async function validateEmailsBulk(
       }
       break;
     }
-  } catch {
+  } catch (error) {
+    console.error("Error submitting or polling batch:", error);
     // Submission or polling failed outright — every email gets backfilled below.
   }
 
   const fromBatch = byEmail.size;
   const missing = emails.filter((email) => !byEmail.has(email));
+  let backfilled: MailsSoResult[] = [];
   if (missing.length > 0) {
-    const backfilled = await mapWithConcurrency(missing, BACKFILL_CONCURRENCY, (email) =>
-      validateEmail(email, apiKey)
+    backfilled = await mapWithConcurrency(
+      missing,
+      BACKFILL_CONCURRENCY,
+      (email) => validateEmail(email, apiKey)
     );
     for (const result of backfilled) byEmail.set(result.email, result);
+    await debugDump(`mailsso-batch-${batchId}-backfilled`, backfilled);
   }
 
   const results = emails.map((email) => byEmail.get(email)!);

@@ -3,6 +3,7 @@
 import { useMemo, useState, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { scrapeComments } from "@/network/internal";
 
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 
@@ -58,13 +59,9 @@ export default function CommentScraperPage() {
     setMeta(null);
 
     try {
-      const res = await fetch("/api/scrape/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoUrl }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
+      const res = await scrapeComments({ videoUrl });
+      const data = res.data;
+      if (res.status >= 400) {
         setError(data.error ?? "Something went wrong");
       } else {
         setAuthors(data.authors);
@@ -83,10 +80,16 @@ export default function CommentScraperPage() {
   function downloadCsv() {
     const rows = [
       ["Username", "Channel URL", "Comment Count"],
-      ...sortedAuthors.map((a) => [a.username, a.channelUrl ?? "", String(a.commentCount)]),
+      ...sortedAuthors.map((a) => [
+        a.username,
+        a.channelUrl ?? "",
+        String(a.commentCount),
+      ]),
     ];
     const csv = rows
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .map((row) =>
+        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+      )
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -194,7 +197,9 @@ export default function CommentScraperPage() {
                       Username
                       {sortKey === "username" && (
                         <i
-                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          className={`ri-arrow-${
+                            sortDir === "asc" ? "up" : "down"
+                          }-line text-sm`}
                           aria-hidden
                         />
                       )}
@@ -208,7 +213,9 @@ export default function CommentScraperPage() {
                       Comments
                       {sortKey === "commentCount" && (
                         <i
-                          className={`ri-arrow-${sortDir === "asc" ? "up" : "down"}-line text-sm`}
+                          className={`ri-arrow-${
+                            sortDir === "asc" ? "up" : "down"
+                          }-line text-sm`}
                           aria-hidden
                         />
                       )}

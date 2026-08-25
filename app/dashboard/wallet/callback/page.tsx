@@ -3,12 +3,15 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { verifyWalletDeposit } from "@/network/internal";
 
 type VerifyState = "checking" | "success" | "pending" | "error";
 
 export default function WalletCallbackPage() {
   return (
-    <Suspense fallback={<div className="py-20 text-center text-muted">Loading...</div>}>
+    <Suspense
+      fallback={<div className="py-20 text-center text-muted">Loading...</div>}
+    >
       <WalletCallbackContent />
     </Suspense>
   );
@@ -24,8 +27,8 @@ function WalletCallbackContent() {
   useEffect(() => {
     if (!reference) return;
 
-    fetch(`/api/wallet/deposit/verify?reference=${encodeURIComponent(reference)}`)
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+    verifyWalletDeposit(reference)
+      .then((res) => ({ ok: res.status < 400, data: res.data }))
       .then(({ ok, data }) => {
         if (!ok) {
           setState("error");
@@ -34,7 +37,7 @@ function WalletCallbackContent() {
         }
         if (data.status === "success") {
           setState("success");
-          setBalance(data.balance);
+          setBalance(data.balance ?? null);
         } else {
           setState("pending");
           setMessage(`Payment status: ${data.status}`);
