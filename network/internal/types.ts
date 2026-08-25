@@ -54,6 +54,19 @@ export type ValidateEmailsResponse = {
   code?: string;
 };
 
+export type ValidateEmailPayload = {
+  username: string;
+  email: string;
+  apiKey?: string;
+};
+
+export type ValidateEmailResponse = {
+  result: ValidatedEmail;
+  balance?: number | null;
+  error?: string;
+  code?: string;
+};
+
 export type SendEmailsPayload = {
   emails: string;
   subject: string;

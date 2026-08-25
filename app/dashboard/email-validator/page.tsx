@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { validateEmails } from "@/network/internal";
+import { validateEmails, validateEmail } from "@/network/internal";
 import { usernamesToEmailCandidates, type EmailCandidate } from "@/lib/emailGuess";
 import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
@@ -139,8 +139,48 @@ export default function EmailValidatorPage() {
 
   async function revalidateOne(candidate: EmailCandidate) {
     setRevalidating((prev) => new Set(prev).add(candidate.email));
+    setError("");
+
+    const trimmedApiKey = apiKey.trim();
+    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
+
     try {
-      await runValidation([candidate]);
+      const res = await validateEmail({
+        username: candidate.username,
+        email: candidate.email,
+        apiKey: trimmedApiKey,
+      });
+      const data = res.data;
+
+      const applyResult = (result: {
+        email: string;
+        status: Validation["status"];
+        reason?: string;
+      }) => {
+        setValidations((prev) => {
+          const next = new Map(prev);
+          next.set(result.email, { status: result.status, reason: result.reason });
+          return next;
+        });
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (result.status === "valid") next.add(result.email);
+          else next.delete(result.email);
+          return next;
+        });
+      };
+
+      if (res.status >= 400) {
+        setError(data.error ?? "Something went wrong");
+        if (data.result) applyResult(data.result);
+      } else {
+        applyResult(data.result);
+        if (typeof data.balance === "number") {
+          window.dispatchEvent(new Event("wallet:updated"));
+        }
+      }
+    } catch {
+      setError("Failed to reach the server");
     } finally {
       setRevalidating((prev) => {
         const next = new Set(prev);

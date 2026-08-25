@@ -70,7 +70,7 @@ export async function verifyEmail(
   const apiKey = apiKeyOrThrow(apiKeyOverride);
 
   const res = await listCleanApi
-    .get<ListCleanEnvelope<ListCleanEmailRecord[]>>(
+    .get<ListCleanEnvelope<ListCleanEmailRecord>>(
       `/verify/email/${encodeURIComponent(email)}`,
       { headers: authHeaders(apiKey) }
     )
@@ -86,7 +86,7 @@ export async function verifyEmail(
     );
   }
 
-  return toResult(res.data?.data?.[0], email);
+  return toResult(res.data?.data, email);
 }
 
 /**
@@ -154,7 +154,7 @@ export async function downloadListResults(
       { headers: authHeaders(apiKey) }
     )
     .catch(() => null);
-    console.log("========== DOWNLOAD LIST RESULTS ==========\n", res?.data);
+  console.log("========== DOWNLOAD LIST RESULTS ==========\n", res?.data);
   if (!res || res.status >= 400) {
     throw new Error(
       `listclean download failed (HTTP ${res?.status ?? "request_failed"})`
@@ -192,7 +192,7 @@ async function runListCleanChunk(
       await sleep(LIST_POLL_INTERVAL_MS);
       const info = await getListInfo(listId, apiKey);
       if (info.status !== "COMPLETED") continue;
-      
+
       await sleep(LIST_POLL_INTERVAL_MS);
       const records = await downloadListResults(listId, "all", apiKey);
       await debugDump(`listclean-list-${listId}-result`, { info, records });

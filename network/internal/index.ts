@@ -6,6 +6,8 @@ import type {
   ScrapeChannelEmailsResponse,
   ValidateEmailsPayload,
   ValidateEmailsResponse,
+  ValidateEmailPayload,
+  ValidateEmailResponse,
   SendEmailsPayload,
   SendEmailsResponse,
   WalletDepositPayload,
@@ -36,6 +38,13 @@ export function scrapeChannelEmails(payload: ScrapeChannelEmailsPayload) {
 export function validateEmails(payload: ValidateEmailsPayload) {
   return internalApi.post<ValidateEmailsResponse>(
     "/api/scrape/validate-emails",
+    payload
+  );
+}
+
+export function validateEmail(payload: ValidateEmailPayload) {
+  return internalApi.post<ValidateEmailResponse>(
+    "/api/scrape/validate-email",
     payload
   );
 }
