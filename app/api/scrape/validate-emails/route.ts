@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { validateEmailsBulk } from "@/lib/mailsSo";
+import { verifyEmailsBulk } from "@/lib/listClean";
 import { getBalance, debitWallet, InsufficientBalanceError } from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
@@ -38,7 +38,7 @@ function parseCandidates(input: unknown): Candidate[] {
 
 // Guessing the Gmail address from a username now happens client-side (see
 // lib/emailGuess.ts) so the list is ready to show instantly — this route
-// only does the part that needs a server: paid validation against mails.so.
+// only does the part that needs a server: paid validation against listclean.
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   let results: ValidatedEmail[];
   try {
-    const validations = await validateEmailsBulk(
+    const validations = await verifyEmailsBulk(
       candidates.map((c) => c.email),
       apiKey
     );
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       const wallet = await debitWallet({
         userId,
         amount: costPerValidation * results.length,
-        description: `Validated ${results.length} email${results.length === 1 ? "" : "s"} with mails.so`,
+        description: `Validated ${results.length} email${results.length === 1 ? "" : "s"} with listclean`,
         metadata: { tool: "emailValidator", count: results.length },
       });
       balance = wallet.balance;

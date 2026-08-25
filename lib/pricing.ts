@@ -7,7 +7,7 @@ export const CURRENCY = "YOSE";
 export const TOOL_COSTS = {
   emailScraper: null,
   commentScraper: null,
-  // 1 YOSE per username validated — matches one mails.so lookup.
+  // 1 YOSE per username validated — matches one listclean lookup.
   emailValidator: null,
   sendEmails: null,
 } as const;

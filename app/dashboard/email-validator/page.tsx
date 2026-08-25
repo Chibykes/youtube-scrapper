@@ -15,7 +15,7 @@ type Validation = {
 
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
-const STORAGE_MAILSO_KEY_KEY = "ytscraper:mailsoApiKey";
+const STORAGE_LISTCLEAN_KEY_KEY = "ytscraper:listcleanApiKey";
 const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
 
 export default function EmailValidatorPage() {
@@ -34,7 +34,7 @@ export default function EmailValidatorPage() {
   // trigger a hydration mismatch.
   useEffect(() => {
     const pending = sessionStorage.getItem(SESSION_USERNAMES_KEY);
-    const storedApiKey = localStorage.getItem(STORAGE_MAILSO_KEY_KEY);
+    const storedApiKey = localStorage.getItem(STORAGE_LISTCLEAN_KEY_KEY);
     if (pending) sessionStorage.removeItem(SESSION_USERNAMES_KEY);
 
     /* eslint-disable react-hooks/set-state-in-effect -- one-time sync from browser storage on mount, not derivable from props/state */
@@ -45,7 +45,7 @@ export default function EmailValidatorPage() {
 
   // Guessing the Gmail address from a username is pure client-side string
   // manipulation (see lib/emailGuess.ts) — no need to round-trip to the
-  // server just to show the list. Only validating against mails.so costs
+  // server just to show the list. Only validating against listclean costs
   // money and needs a server.
   const candidates = useMemo(() => {
     const usernames = raw
@@ -79,7 +79,7 @@ export default function EmailValidatorPage() {
     if (candidates.length === 0) return;
 
     const trimmedApiKey = apiKey.trim();
-    localStorage.setItem(STORAGE_MAILSO_KEY_KEY, trimmedApiKey);
+    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
 
     setLoading(true);
     setError("");
@@ -170,21 +170,21 @@ export default function EmailValidatorPage() {
       <p className="mt-1 text-muted">
         Paste YouTube usernames (one per line) — a leading @ is dropped, and
         hyphenated names are truncated at the hyphen. The guessed Gmail
-        addresses show up instantly below; validating them against mails.so
+        addresses show up instantly below; validating them against listclean
         is what costs {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
-        <label htmlFor="mailsoApiKey" className="mb-2 block text-sm text-muted">
-          mails.so API key
+        <label htmlFor="listcleanApiKey" className="mb-2 block text-sm text-muted">
+          listclean API key
         </label>
         <div className="relative">
           <input
-            id="mailsoApiKey"
+            id="listcleanApiKey"
             type={showApiKey ? "text" : "password"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Your mails.so API key"
+            placeholder="Your listclean API key"
             autoComplete="off"
             className="w-full border border-border bg-surface-2 px-4 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
           />
@@ -227,7 +227,7 @@ export default function EmailValidatorPage() {
               ? "Validating..."
               : validatedCount > 0
                 ? "Re-validate"
-                : "Validate with mails.so"}
+                : "Validate with listclean"}
           </button>
         </div>
       </div>
