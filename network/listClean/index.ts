@@ -19,7 +19,7 @@ const MAX_BATCH_SIZE = 3000;
 const CHUNK_CONCURRENCY = 3;
 
 const LIST_POLL_ATTEMPTS = 20;
-const LIST_POLL_INTERVAL_MS = 3000;
+const LIST_POLL_INTERVAL_MS = 5000;
 
 // If a chunk's job doesn't finish in time (or omits an email), that email
 // gets a real-time verdict from the single-email endpoint instead.

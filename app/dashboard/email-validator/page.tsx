@@ -244,8 +244,31 @@ export default function EmailValidatorPage() {
           <button
             onClick={handleValidate}
             disabled={loading || candidates.length === 0}
-            className="bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 bg-accent px-5 py-2.5 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {loading && (
+              <svg
+                className="h-4 w-4 animate-spin"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+            )}
             {loading
               ? "Validating..."
               : validatedCount > 0
@@ -254,6 +277,15 @@ export default function EmailValidatorPage() {
           </button>
         </div>
       </div>
+
+      <p className="mt-4 flex items-start gap-2 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
+        <i className="ri-information-line mt-0.5 shrink-0 text-base" aria-hidden />
+        <span>
+          Validation can take up to 5 minutes depending on how many emails
+          you submit — larger lists are processed in batches behind the
+          scenes.
+        </span>
+      </p>
 
       {error && (
         <p className="mt-4 border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
