@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { validateEmails } from "@/network/internal";
-import { usernamesToEmailCandidates } from "@/lib/emailGuess";
+import { usernamesToEmailCandidates, type EmailCandidate } from "@/lib/emailGuess";
 import { CURRENCY, TOOL_COSTS } from "@/lib/pricing";
 
 type ValidationStatus = "pending" | "valid" | "invalid" | "unknown";
@@ -30,6 +30,7 @@ export default function EmailValidatorPage() {
     new Map()
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [revalidating, setRevalidating] = useState<Set<string>>(new Set());
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
   // after mount — reading them in the initializer instead would make the
@@ -78,17 +79,18 @@ export default function EmailValidatorPage() {
   const validatedCount = rows.filter((r) => r.status !== "pending").length;
   const estimatedCost = candidates.length * COST_PER_VALIDATION;
 
-  async function handleValidate() {
-    if (candidates.length === 0) return;
+  async function runValidation(candidatesToValidate: EmailCandidate[]) {
+    if (candidatesToValidate.length === 0) return;
 
     const trimmedApiKey = apiKey.trim();
     localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
-
-    setLoading(true);
     setError("");
 
     try {
-      const res = await validateEmails({ candidates, apiKey: trimmedApiKey });
+      const res = await validateEmails({
+        candidates: candidatesToValidate,
+        apiKey: trimmedApiKey,
+      });
       const data = res.data;
 
       type ResultRow = {
@@ -104,11 +106,14 @@ export default function EmailValidatorPage() {
           }
           return next;
         });
-        setSelected(
-          new Set(
-            results.filter((r) => r.status === "valid").map((r) => r.email)
-          )
-        );
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const r of results) {
+            if (r.status === "valid") next.add(r.email);
+            else next.delete(r.email);
+          }
+          return next;
+        });
       };
 
       if (res.status >= 400) {
@@ -122,8 +127,26 @@ export default function EmailValidatorPage() {
       }
     } catch {
       setError("Failed to reach the server");
+    }
+  }
+
+  async function handleValidate() {
+    if (candidates.length === 0) return;
+    setLoading(true);
+    await runValidation(candidates);
+    setLoading(false);
+  }
+
+  async function revalidateOne(candidate: EmailCandidate) {
+    setRevalidating((prev) => new Set(prev).add(candidate.email));
+    try {
+      await runValidation([candidate]);
     } finally {
-      setLoading(false);
+      setRevalidating((prev) => {
+        const next = new Set(prev);
+        next.delete(candidate.email);
+        return next;
+      });
     }
   }
 
@@ -180,10 +203,12 @@ export default function EmailValidatorPage() {
         Username → Email Validator
       </h1>
       <p className="mt-1 text-muted">
-        Paste YouTube usernames (one per line) — a leading @ is dropped, and
-        hyphenated names are truncated at the hyphen. The guessed Gmail
-        addresses show up instantly below; validating them against listclean is
-        what costs {CURRENCY} and needs a click.
+        Paste YouTube usernames or full email addresses, one per line — a
+        leading @ is dropped from usernames, and hyphenated names are
+        truncated at the hyphen to guess a Gmail address. Anything that&apos;s
+        already a complete email is used as-is, unchanged. The list shows up
+        instantly below; validating it against listclean is what costs{" "}
+        {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
@@ -220,20 +245,19 @@ export default function EmailValidatorPage() {
           htmlFor="usernames"
           className="mb-2 mt-4 block text-sm text-muted"
         >
-          Usernames
+          Usernames or emails
         </label>
         <textarea
           id="usernames"
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           rows={8}
-          placeholder={"mrbeast\ncool-guy99\n@johndoe123"}
+          placeholder={"mrbeast\ncool-guy99\n@johndoe123\njane@example.com"}
           className="w-full resize-y border border-border bg-surface-2 p-4 font-mono text-sm text-foreground outline-none focus:border-accent"
         />
         <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-muted">
-            {candidates.length} email{candidates.length === 1 ? "" : "s"}{" "}
-            guessed
+            {candidates.length} email{candidates.length === 1 ? "" : "s"} ready
             {COST_PER_VALIDATION > 0 && candidates.length > 0 && (
               <>
                 {" "}
@@ -307,7 +331,7 @@ export default function EmailValidatorPage() {
             <h2 className="font-medium text-foreground">
               {validatedCount > 0
                 ? `${validCount} of ${rows.length} validated as deliverable`
-                : `${rows.length} guessed, not yet validated`}
+                : `${rows.length} ready, not yet validated`}
             </h2>
             <div className="flex items-center gap-3">
               <button
@@ -332,31 +356,56 @@ export default function EmailValidatorPage() {
                 <tr>
                   <th className="w-10 px-4 py-3" />
                   <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Guessed email</th>
+                  <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="w-10 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {rows.map((r) => (
-                  <tr key={r.email} className="bg-surface">
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.email)}
-                        onChange={() => toggleSelected(r.email)}
-                        disabled={r.status !== "valid"}
-                        className="h-4 w-4 accent-accent disabled:opacity-30"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-foreground">{r.username}</td>
-                    <td className="px-4 py-3 font-mono text-foreground">
-                      {r.email}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={r.status} reason={r.reason} />
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const isRevalidating = revalidating.has(r.email);
+                  return (
+                    <tr key={r.email} className="bg-surface">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(r.email)}
+                          onChange={() => toggleSelected(r.email)}
+                          disabled={r.status !== "valid"}
+                          className="h-4 w-4 accent-accent disabled:opacity-30"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-foreground">
+                        {r.username}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-foreground">
+                        {r.email}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={r.status} reason={r.reason} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            revalidateOne({ username: r.username, email: r.email })
+                          }
+                          disabled={loading || isRevalidating}
+                          title="Re-validate this email"
+                          aria-label="Re-validate this email"
+                          className="text-danger transition-colors hover:text-danger/70 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <i
+                            className={`ri-refresh-line text-base ${
+                              isRevalidating ? "animate-spin" : ""
+                            }`}
+                            aria-hidden
+                          />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
