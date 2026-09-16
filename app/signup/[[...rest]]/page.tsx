@@ -1,10 +1,19 @@
-import { SignUp } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import AuthShell from "@/components/AuthShell";
+import AuthView from "@/components/AuthView";
 
-export default function SignupPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SignupPage() {
+  const { userId, sessionStatus } = await auth();
+  if (userId && sessionStatus !== "pending") {
+    redirect("/dashboard");
+  }
+
   return (
     <AuthShell>
-      <SignUp path="/signup" signInUrl="/login" />
+      <AuthView mode="sign-up" />
     </AuthShell>
   );
 }
