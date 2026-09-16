@@ -28,7 +28,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${instrumentSans.variable} ${archivoBlack.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <ClerkProvider appearance={clerkAppearance}>{children}</ClerkProvider>
+        <ClerkProvider
+          appearance={clerkAppearance}
+          signInUrl="/login"
+          signUpUrl="/signup"
+          afterSignOutUrl="/login"
+          signInFallbackRedirectUrl="/dashboard"
+          signUpFallbackRedirectUrl="/dashboard"
+        >
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );
