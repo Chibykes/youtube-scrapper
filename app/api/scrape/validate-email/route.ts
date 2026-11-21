@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { verifyEmail } from "@/network/listClean";
+import { verifyEmail } from "@/network/reacher";
 import {
   getBalance,
   debitWallet,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       const wallet = await debitWallet({
         userId,
         amount: cost,
-        description: `Validated 1 email with listclean`,
+        description: `Validated 1 email with reacher`,
         metadata: { tool: "emailValidator", count: 1 },
       });
       balance = wallet.balance;

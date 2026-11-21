@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { verifyEmailsBulk } from "@/network/listClean";
+import { verifyEmailsBulk } from "@/network/reacher";
 import {
   getBalance,
   debitWallet,
@@ -44,7 +44,7 @@ function parseCandidates(input: unknown): Candidate[] {
 
 // Guessing the Gmail address from a username now happens client-side (see
 // lib/emailGuess.ts) so the list is ready to show instantly — this route
-// only does the part that needs a server: paid validation against listclean.
+// only does the part that needs a server: paid validation against Reacher.
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
+  // Optional override for RCH__HEADER_SECRET / REACHER_SECRET (same role as
+  // the old listclean apiKey field on the request body).
   const apiKey =
     typeof body?.apiKey === "string" && body.apiKey.trim()
       ? body.apiKey.trim()
@@ -112,7 +114,7 @@ export async function POST(request: NextRequest) {
         amount: costPerValidation * results.length,
         description: `Validated ${results.length} email${
           results.length === 1 ? "" : "s"
-        } with listclean`,
+        } with reacher`,
         metadata: { tool: "emailValidator", count: results.length },
       });
       balance = wallet.balance;
