@@ -18,7 +18,7 @@ const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
 const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
 /** Client chunks so rows update progressively (avoids one multi-minute TTFB). */
-const VALIDATE_CHUNK_SIZE = 25;
+const VALIDATE_CHUNK_SIZE = 45;
 
 export default function EmailValidatorPage() {
   const router = useRouter();
@@ -342,7 +342,7 @@ export default function EmailValidatorPage() {
       <p className="mt-4 flex items-start gap-2 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
         <i className="ri-information-line mt-0.5 shrink-0 text-base" aria-hidden />
         <span>
-          Checks run over SMTP via rotating SOCKS proxies (~10–12 in parallel).
+          Checks run over SMTP via rotating SOCKS proxies (~10–15 in parallel).
           Lists are validated in chunks of {VALIDATE_CHUNK_SIZE} so results appear
           as each batch finishes — expect a few seconds per email when proxies
           are healthy.
