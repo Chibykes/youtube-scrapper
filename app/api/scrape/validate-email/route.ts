@@ -8,7 +8,8 @@ import {
 } from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
-export const maxDuration = 30;
+// Single address, up to 3 SMTP attempts with ~20s smtp timeout each.
+export const maxDuration = 120;
 
 // Single-email counterpart to /api/scrape/validate-emails — used by the
 // per-row "re-validate" action so revalidating one email doesn't round-trip

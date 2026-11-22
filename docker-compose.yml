@@ -21,9 +21,11 @@ services:
       RCH__HTTP_PORT: 8080
       RCH__HELLO_NAME: ${RCH__HELLO_NAME:-chibykes.dev}
       RCH__FROM_EMAIL: ${RCH__FROM_EMAIL:-hello@chibykes.dev}
-      RCH__SMTP_TIMEOUT: ${RCH__SMTP_TIMEOUT:-45}
+      # Gmail via SOCKS often needs 10–35s; 20s cut real answers, 45s dragged
+      # bulk runs. 30s is the compromise. Recreate reacher after changing this.
+      RCH__SMTP_TIMEOUT: ${RCH__SMTP_TIMEOUT:-30}
       RCH__WORKER__ENABLE: "false"
-      RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: ${RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE:-60}
+      RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: ${RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE:-120}
       RCH__THROTTLE__MAX_REQUESTS_PER_DAY: ${RCH__THROTTLE__MAX_REQUESTS_PER_DAY:-10000}
       # Auth: set RCH__HEADER_SECRET (+ matching REACHER_SECRET) in .env
     healthcheck:

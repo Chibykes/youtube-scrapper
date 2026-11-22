@@ -8,7 +8,8 @@ import {
 } from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
-export const maxDuration = 60;
+// Bulk SMTP checks + retries can run several minutes; keep under platform caps.
+export const maxDuration = 300;
 
 const MAX_CANDIDATES = 500;
 
