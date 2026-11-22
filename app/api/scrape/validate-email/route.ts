@@ -22,10 +22,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const username = typeof body?.username === "string" ? body.username.trim() : "";
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const apiKey =
-    typeof body?.apiKey === "string" && body.apiKey.trim()
-      ? body.apiKey.trim()
-      : undefined;
+  // Reacher auth uses server env REACHER_SECRET only — do not accept a
+  // client "apiKey" override (legacy listclean field would fail the header check).
 
   if (!username || !email) {
     return NextResponse.json(
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   let result: { username: string; email: string; status: string; reason?: string };
   try {
-    const validation = await verifyEmail(email, apiKey);
+    const validation = await verifyEmail(email);
     result = {
       username,
       email,

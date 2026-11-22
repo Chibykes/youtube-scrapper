@@ -1,11 +1,30 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// Service-role client — full read/write access, bypasses RLS. Never import
-// this from a client component; wallet tables have no RLS policies at all,
-// so the anon key can't touch them and this key must stay server-only.
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL ?? "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  { auth: { persistSession: false } },
-);
+// Lazy so `next build` can import wallet routes without SUPABASE_* baked into
+// the image. Runtime still needs real env (compose env_file / host .env.local).
+let client: SupabaseClient | null = null;
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (client) return client;
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required at runtime"
+    );
+  }
+
+  client = createClient(url, key, { auth: { persistSession: false } });
+  return client;
+}
+
+// Service-role client — full read/write, bypasses RLS. Never import from a
+// client component. Proxy keeps existing `supabaseAdmin.from(...)` call sites.
+export const supabaseAdmin: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const value = Reflect.get(getSupabaseAdmin(), prop, receiver);
+    return typeof value === "function" ? value.bind(getSupabaseAdmin()) : value;
+  },
+});

@@ -26,7 +26,7 @@ const tools = [
     href: "/dashboard/email-validator",
     title: "Username → Email Validator",
     description:
-      "Turn commenter usernames into guessed Gmail addresses and validate each one with listclean before you use it.",
+      "Turn commenter usernames into guessed Gmail addresses and validate deliverability with Reacher before you use them.",
     cost: TOOL_COSTS.emailValidator,
     feedsInto: "Send Emails",
     icon: "ri-shield-check-line",

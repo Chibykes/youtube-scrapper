@@ -52,12 +52,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
-  // Optional override for RCH__HEADER_SECRET / REACHER_SECRET (same role as
-  // the old listclean apiKey field on the request body).
-  const apiKey =
-    typeof body?.apiKey === "string" && body.apiKey.trim()
-      ? body.apiKey.trim()
-      : undefined;
+  // Reacher auth uses server env REACHER_SECRET only (not client apiKey).
   const candidates = parseCandidates(body?.candidates).slice(0, MAX_CANDIDATES);
 
   if (candidates.length === 0) {
@@ -88,8 +83,7 @@ export async function POST(request: NextRequest) {
   let results: ValidatedEmail[];
   try {
     const validations = await verifyEmailsBulk(
-      candidates.map((c) => c.email),
-      apiKey
+      candidates.map((c) => c.email)
     );
     const byEmail = new Map(validations.map((v) => [v.email, v]));
     results = candidates.map((c) => {

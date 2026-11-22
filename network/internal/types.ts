@@ -44,7 +44,6 @@ export type ValidatedEmail = {
 
 export type ValidateEmailsPayload = {
   candidates: EmailCandidate[];
-  apiKey?: string;
 };
 
 export type ValidateEmailsResponse = {
@@ -57,7 +56,6 @@ export type ValidateEmailsResponse = {
 export type ValidateEmailPayload = {
   username: string;
   email: string;
-  apiKey?: string;
 };
 
 export type ValidateEmailResponse = {

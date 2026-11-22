@@ -10,6 +10,7 @@ import type {
   ReacherResult,
   ReacherSmtpDetails,
 } from "@/network/reacher/types";
+import { PROXY_HOST, PROXY_PORT } from "@/network/reacher/constants";
 
 // Self-hosted Reacher has no batch endpoint without RabbitMQ workers, so bulk
 // verification fans out to concurrent POST /v1/check_email calls. Keep this
@@ -134,22 +135,37 @@ export async function verifyEmail(
   email: string,
   secretOverride?: string
 ): Promise<ReacherResult> {
-  const secret = secretOrUndefined(secretOverride);
-  const client = reacherClient();
+  try {
+    const secret = secretOrUndefined(secretOverride);
+    const client = reacherClient();
 
-  const res = await client
-    .post<ReacherCheckEmailOutput>(
-      "/v1/check_email",
-      { to_email: email },
-      { headers: authHeaders(secret) }
-    )
-    .catch(() => null);
+    const res = await client
+      .post<ReacherCheckEmailOutput>(
+        "/v1/check_email",
+        {
+          to_email: email,
+          proxy: {
+            host: PROXY_HOST,
+            port: PROXY_PORT,
+          },
+        },
+        { headers: authHeaders(secret) }
+      )
+      .catch(() => null);
 
-  if (!res || res.status >= 400) {
-    return toResult(undefined, email, res ? `http_${res.status}` : "request_failed");
+    if (!res || res.status >= 400) {
+      return toResult(
+        undefined,
+        email,
+        res ? `http_${res.status}` : "request_failed"
+      );
+    }
+
+    return toResult(res.data, email);
+  } catch (error) {
+    console.error("error", error);
+    return toResult(undefined, email, "request_failed");
   }
-
-  return toResult(res.data, email);
 }
 
 /**

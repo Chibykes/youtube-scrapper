@@ -16,14 +16,11 @@ type Validation = {
 
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
-const STORAGE_LISTCLEAN_KEY_KEY = "ytscraper:listcleanApiKey";
 const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
 
 export default function EmailValidatorPage() {
   const router = useRouter();
   const [raw, setRaw] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [validations, setValidations] = useState<Map<string, Validation>>(
@@ -38,18 +35,16 @@ export default function EmailValidatorPage() {
   // trigger a hydration mismatch.
   useEffect(() => {
     const pending = sessionStorage.getItem(SESSION_USERNAMES_KEY);
-    const storedApiKey = localStorage.getItem(STORAGE_LISTCLEAN_KEY_KEY);
     if (pending) sessionStorage.removeItem(SESSION_USERNAMES_KEY);
 
     /* eslint-disable react-hooks/set-state-in-effect -- one-time sync from browser storage on mount, not derivable from props/state */
     if (pending) setRaw(pending);
-    if (storedApiKey) setApiKey(storedApiKey);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   // Guessing the Gmail address from a username is pure client-side string
   // manipulation (see lib/emailGuess.ts) — no need to round-trip to the
-  // server just to show the list. Only validating against listclean costs
+  // server just to show the list. Only SMTP validation via Reacher costs
   // money and needs a server.
   const candidates = useMemo(() => {
     const usernames = raw
@@ -82,14 +77,11 @@ export default function EmailValidatorPage() {
   async function runValidation(candidatesToValidate: EmailCandidate[]) {
     if (candidatesToValidate.length === 0) return;
 
-    const trimmedApiKey = apiKey.trim();
-    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
     setError("");
 
     try {
       const res = await validateEmails({
         candidates: candidatesToValidate,
-        apiKey: trimmedApiKey,
       });
       const data = res.data;
 
@@ -141,14 +133,10 @@ export default function EmailValidatorPage() {
     setRevalidating((prev) => new Set(prev).add(candidate.email));
     setError("");
 
-    const trimmedApiKey = apiKey.trim();
-    localStorage.setItem(STORAGE_LISTCLEAN_KEY_KEY, trimmedApiKey);
-
     try {
       const res = await validateEmail({
         username: candidate.username,
         email: candidate.email,
-        apiKey: trimmedApiKey,
       });
       const data = res.data;
 
@@ -247,43 +235,14 @@ export default function EmailValidatorPage() {
         leading @ is dropped from usernames, and hyphenated names are
         truncated at the hyphen to guess a Gmail address. Anything that&apos;s
         already a complete email is used as-is, unchanged. The list shows up
-        instantly below; validating it against listclean is what costs{" "}
+        instantly below; validating deliverability via Reacher is what costs{" "}
         {CURRENCY} and needs a click.
       </p>
 
       <div className="mt-6 border border-border bg-surface p-5">
         <label
-          htmlFor="listcleanApiKey"
-          className="mb-2 block text-sm text-muted"
-        >
-          listclean API key
-        </label>
-        <div className="relative">
-          <input
-            id="listcleanApiKey"
-            type={showApiKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Your listclean API key"
-            autoComplete="off"
-            className="w-full border border-border bg-surface-2 px-4 py-2.5 pr-16 font-mono text-sm text-foreground outline-none focus:border-accent"
-          />
-          <button
-            type="button"
-            onClick={() => setShowApiKey((v) => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs text-muted hover:text-foreground"
-          >
-            {showApiKey ? "Hide" : "Show"}
-          </button>
-        </div>
-        <p className="mt-1.5 text-xs text-muted">
-          Stored only in your browser&apos;s local storage, never on our
-          servers.
-        </p>
-
-        <label
           htmlFor="usernames"
-          className="mb-2 mt-4 block text-sm text-muted"
+          className="mb-2 block text-sm text-muted"
         >
           Usernames or emails
         </label>
@@ -337,7 +296,7 @@ export default function EmailValidatorPage() {
               ? "Validating..."
               : validatedCount > 0
               ? "Re-validate"
-              : "Validate with listclean"}
+              : "Validate emails"}
           </button>
         </div>
       </div>
@@ -345,9 +304,9 @@ export default function EmailValidatorPage() {
       <p className="mt-4 flex items-start gap-2 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
         <i className="ri-information-line mt-0.5 shrink-0 text-base" aria-hidden />
         <span>
-          Validation can take up to 5 minutes depending on how many emails
-          you submit — larger lists are processed in batches behind the
-          scenes.
+          Each address is checked live over SMTP. Larger lists run a few at a
+          time, so expect roughly a few seconds per email — bigger batches take
+          longer.
         </span>
       </p>
 

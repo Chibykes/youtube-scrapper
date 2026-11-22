@@ -6,7 +6,9 @@
     "dev": "next dev -p 2233",
     "build": "next build",
     "start": "next start -p 2233",
-    "lint": "eslint"
+    "lint": "eslint",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.8.0",
