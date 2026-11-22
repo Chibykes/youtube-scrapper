@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { verifyEmail } from "@/network/listClean";
+import { verifyEmail } from "@/network/reacher";
 import {
   getBalance,
   debitWallet,
@@ -22,10 +22,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const username = typeof body?.username === "string" ? body.username.trim() : "";
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const apiKey =
-    typeof body?.apiKey === "string" && body.apiKey.trim()
-      ? body.apiKey.trim()
-      : undefined;
+  // Reacher auth uses server env REACHER_SECRET only — do not accept a
+  // client "apiKey" override (legacy listclean field would fail the header check).
 
   if (!username || !email) {
     return NextResponse.json(
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   let result: { username: string; email: string; status: string; reason?: string };
   try {
-    const validation = await verifyEmail(email, apiKey);
+    const validation = await verifyEmail(email);
     result = {
       username,
       email,
@@ -71,7 +69,7 @@ export async function POST(request: NextRequest) {
       const wallet = await debitWallet({
         userId,
         amount: cost,
-        description: `Validated 1 email with listclean`,
+        description: `Validated 1 email with reacher`,
         metadata: { tool: "emailValidator", count: 1 },
       });
       balance = wallet.balance;
