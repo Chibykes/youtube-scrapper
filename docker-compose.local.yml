@@ -3,7 +3,59 @@ name: youtube-scrapper
 # Local build stack (no GHCR pull). Use:
 #   docker compose -f docker-compose.local.yml up -d --build
 # Or: npm run docker:up
+#
+# Reacher queue: rabbitmq + postgres + HTTP API + one worker per SOCKS proxy.
+# Local keeps RUST_LOG=debug for SMTP/proxy debugging.
+
+x-reacher-common-env: &reacher-common-env
+  RCH__HTTP_HOST: 0.0.0.0
+  RCH__HTTP_PORT: 8080
+  RCH__HELLO_NAME: ${RCH__HELLO_NAME:-localhost}
+  RCH__FROM_EMAIL: ${RCH__FROM_EMAIL:-hello@localhost}
+  RCH__SMTP_TIMEOUT: ${RCH__SMTP_TIMEOUT:-25}
+  RCH__WORKER__ENABLE: "true"
+  RCH__WORKER__RABBITMQ__URL: amqp://reacher:reacher@reacher-rabbitmq:5672
+  # Parallel SMTP jobs on THIS worker's single proxy.
+  RCH__WORKER__RABBITMQ__CONCURRENCY: "3"
+  RCH__STORAGE__POSTGRES__DB_URL: postgres://reacher:reacher@reacher-postgres:5432/reacher_db
+  RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: ${RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE:-120}
+  RCH__THROTTLE__MAX_REQUESTS_PER_DAY: ${RCH__THROTTLE__MAX_REQUESTS_PER_DAY:-10000}
+
 services:
+  reacher-rabbitmq:
+    image: rabbitmq:4.0-management
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: reacher
+      RABBITMQ_DEFAULT_PASS: reacher
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - reacher-rabbitmq-data:/var/lib/rabbitmq
+
+  reacher-postgres:
+    image: postgres:14
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reacher
+      POSTGRES_PASSWORD: reacher
+      POSTGRES_DB: reacher_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reacher -d reacher_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - reacher-postgres-data:/var/lib/postgresql/data
+
+  # HTTP API (+ consumer) — proxy 1
   reacher:
     image: reacherhq/backend:v0.11.9
     platform: linux/amd64
@@ -16,16 +68,125 @@ services:
       - path: .env
         required: false
     environment:
-      RUST_LOG: ${RUST_LOG:-reacher=info}
-      RCH__BACKEND_NAME: ${RCH__BACKEND_NAME:-youtube-scrapper-reacher}
-      RCH__HTTP_HOST: 0.0.0.0
-      RCH__HTTP_PORT: 8080
-      RCH__HELLO_NAME: ${RCH__HELLO_NAME:-localhost}
-      RCH__FROM_EMAIL: ${RCH__FROM_EMAIL:-hello@localhost}
-      RCH__SMTP_TIMEOUT: ${RCH__SMTP_TIMEOUT:-45}
-      RCH__WORKER__ENABLE: "false"
-      RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: ${RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE:-60}
-      RCH__THROTTLE__MAX_REQUESTS_PER_DAY: ${RCH__THROTTLE__MAX_REQUESTS_PER_DAY:-10000}
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher
+      RCH__PROXY__HOST: "103.119.1.160"
+      RCH__PROXY__PORT: "5555"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # Dedicated consumers — one SOCKS proxy each (from PROXY_POOL).
+  reacher-worker-2:
+    image: reacherhq/backend:v0.11.9
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
+    environment:
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher-w2
+      RCH__PROXY__HOST: "172.81.111.156"
+      RCH__PROXY__PORT: "10001"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  reacher-worker-3:
+    image: reacherhq/backend:v0.11.9
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
+    environment:
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher-w3
+      RCH__PROXY__HOST: "209.50.255.91"
+      RCH__PROXY__PORT: "1080"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  reacher-worker-4:
+    image: reacherhq/backend:v0.11.9
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
+    environment:
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher-w4
+      RCH__PROXY__HOST: "45.74.31.42"
+      RCH__PROXY__PORT: "4089"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  reacher-worker-5:
+    image: reacherhq/backend:v0.11.9
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
+    environment:
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher-w5
+      RCH__PROXY__HOST: "103.124.172.134"
+      RCH__PROXY__PORT: "1080"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
       interval: 10s
@@ -60,8 +221,17 @@ services:
       PORT: 2233
       HOSTNAME: 0.0.0.0
       REACHER_URL: http://reacher:8080
+      REACHER_USE_BULK: "true"
     depends_on:
       reacher:
+        condition: service_healthy
+      # reacher-worker-2:
+      #   condition: service_healthy
+      reacher-worker-3:
+        condition: service_healthy
+      reacher-worker-4:
+        condition: service_healthy
+      reacher-worker-5:
         condition: service_healthy
     healthcheck:
       test:
@@ -75,3 +245,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+
+volumes:
+  reacher-postgres-data:
+  reacher-rabbitmq-data:

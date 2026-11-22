@@ -17,6 +17,8 @@ type Validation = {
 const SESSION_USERNAMES_KEY = "ytscraper:pendingUsernames";
 const SESSION_SEND_EMAILS_KEY = "ytscraper:emailsToSend";
 const COST_PER_VALIDATION = TOOL_COSTS.emailValidator ?? 0;
+/** Client chunks so rows update progressively (avoids one multi-minute TTFB). */
+const VALIDATE_CHUNK_SIZE = 25;
 
 export default function EmailValidatorPage() {
   const router = useRouter();
@@ -28,6 +30,9 @@ export default function EmailValidatorPage() {
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [revalidating, setRevalidating] = useState<Set<string>>(new Set());
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
 
   // localStorage/sessionStorage don't exist during SSR, so this can only run
   // after mount — reading them in the initializer instead would make the
@@ -74,59 +79,80 @@ export default function EmailValidatorPage() {
   const validatedCount = rows.filter((r) => r.status !== "pending").length;
   const estimatedCost = candidates.length * COST_PER_VALIDATION;
 
-  async function runValidation(candidatesToValidate: EmailCandidate[]) {
-    if (candidatesToValidate.length === 0) return;
+  type ResultRow = {
+    email: string;
+    status: Validation["status"];
+    reason?: string;
+  };
 
-    setError("");
+  function applyResults(results: ResultRow[]) {
+    setValidations((prev) => {
+      const next = new Map(prev);
+      for (const r of results) {
+        next.set(r.email, { status: r.status, reason: r.reason });
+      }
+      return next;
+    });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of results) {
+        if (r.status === "valid") next.add(r.email);
+        else next.delete(r.email);
+      }
+      return next;
+    });
+  }
 
+  async function runValidationChunk(chunk: EmailCandidate[]): Promise<boolean> {
     try {
-      const res = await validateEmails({
-        candidates: candidatesToValidate,
-      });
+      const res = await validateEmails({ candidates: chunk });
       const data = res.data;
-
-      type ResultRow = {
-        email: string;
-        status: Validation["status"];
-        reason?: string;
-      };
-      const applyResults = (results: ResultRow[]) => {
-        setValidations((prev) => {
-          const next = new Map(prev);
-          for (const r of results) {
-            next.set(r.email, { status: r.status, reason: r.reason });
-          }
-          return next;
-        });
-        setSelected((prev) => {
-          const next = new Set(prev);
-          for (const r of results) {
-            if (r.status === "valid") next.add(r.email);
-            else next.delete(r.email);
-          }
-          return next;
-        });
-      };
 
       if (res.status >= 400) {
         setError(data.error ?? "Something went wrong");
         if (Array.isArray(data.results)) applyResults(data.results);
-      } else {
-        applyResults(data.results);
-        if (typeof data.balance === "number") {
-          window.dispatchEvent(new Event("wallet:updated"));
-        }
+        return false;
       }
+
+      applyResults(data.results);
+      if (typeof data.balance === "number") {
+        window.dispatchEvent(new Event("wallet:updated"));
+      }
+      return true;
     } catch {
       setError("Failed to reach the server");
+      return false;
+    }
+  }
+
+  async function runValidation(candidatesToValidate: EmailCandidate[]) {
+    if (candidatesToValidate.length === 0) return;
+
+    setError("");
+    const total = candidatesToValidate.length;
+    setProgress({ done: 0, total });
+
+    for (let i = 0; i < candidatesToValidate.length; i += VALIDATE_CHUNK_SIZE) {
+      const chunk = candidatesToValidate.slice(i, i + VALIDATE_CHUNK_SIZE);
+      const ok = await runValidationChunk(chunk);
+      setProgress({
+        done: Math.min(i + chunk.length, total),
+        total,
+      });
+      if (!ok) break;
     }
   }
 
   async function handleValidate() {
     if (candidates.length === 0) return;
     setLoading(true);
-    await runValidation(candidates);
-    setLoading(false);
+    setProgress(null);
+    try {
+      await runValidation(candidates);
+    } finally {
+      setLoading(false);
+      setProgress(null);
+    }
   }
 
   async function revalidateOne(candidate: EmailCandidate) {
@@ -293,20 +319,33 @@ export default function EmailValidatorPage() {
               </svg>
             )}
             {loading
-              ? "Validating..."
+              ? progress
+                ? `Validating ${progress.done}/${progress.total}…`
+                : "Validating…"
               : validatedCount > 0
-              ? "Re-validate"
-              : "Validate emails"}
+                ? "Re-validate"
+                : "Validate emails"}
           </button>
         </div>
+        {loading && progress && progress.total > 0 && (
+          <div className="mt-3 h-1.5 w-full overflow-hidden bg-surface-2">
+            <div
+              className="h-full bg-accent transition-[width] duration-300"
+              style={{
+                width: `${Math.round((progress.done / progress.total) * 100)}%`,
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <p className="mt-4 flex items-start gap-2 border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
         <i className="ri-information-line mt-0.5 shrink-0 text-base" aria-hidden />
         <span>
-          Each address is checked live over SMTP. Larger lists run a few at a
-          time, so expect roughly a few seconds per email — bigger batches take
-          longer.
+          Checks run over SMTP via rotating SOCKS proxies (~10–12 in parallel).
+          Lists are validated in chunks of {VALIDATE_CHUNK_SIZE} so results appear
+          as each batch finishes — expect a few seconds per email when proxies
+          are healthy.
         </span>
       </p>
 

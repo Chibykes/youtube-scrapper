@@ -10,14 +10,32 @@ import type {
   ReacherResult,
   ReacherSmtpDetails,
 } from "@/network/reacher/types";
-import { PROXY_HOST, PROXY_PORT } from "@/network/reacher/constants";
+import {
+  nextProxy,
+  nextProxyExcept,
+  PROXY_POOL,
+  type SocksProxy,
+} from "@/network/reacher/constants";
+import type { AxiosInstance } from "axios";
 
-// Self-hosted Reacher has no batch endpoint without RabbitMQ workers, so bulk
-// verification fans out to concurrent POST /v1/check_email calls. Keep this
-// low — Reacher's default throttle is ~60/min and SMTP reputation burns fast.
-const VERIFY_CONCURRENCY = 5;
-// SMTP + proxy handshake can take tens of seconds per address.
-const REQUEST_TIMEOUT_MS = 90_000;
+// Fan-out fallback / single-check concurrency (~2 jobs per SOCKS in PROXY_POOL).
+const VERIFY_CONCURRENCY =
+  Number(process.env.REACHER_VERIFY_CONCURRENCY) || 15;
+const REQUEST_TIMEOUT_MS =
+  Number(process.env.REACHER_REQUEST_TIMEOUT_MS) || 35_000;
+const SINGLE_MAX_ATTEMPTS = Number(process.env.REACHER_MAX_ATTEMPTS) || 3;
+const BULK_MAX_ATTEMPTS = Number(process.env.REACHER_BULK_MAX_ATTEMPTS) || 2;
+const RETRY_DELAY_MS = 500;
+const CHECK_PATH = "/v1/check_email";
+const BULK_POLL_MS = Number(process.env.REACHER_BULK_POLL_MS) || 2_000;
+const BULK_MAX_WAIT_MS =
+  Number(process.env.REACHER_BULK_MAX_WAIT_MS) || 15 * 60_000;
+// Default on when workers + rabbitmq are up (compose sets REACHER_USE_BULK=true).
+const USE_BULK =
+  (process.env.REACHER_USE_BULK ?? "true").toLowerCase() !== "false";
+
+let cachedClient: AxiosInstance | null = null;
+let cachedBaseUrl: string | null = null;
 
 function baseUrl(): string {
   const url = process.env.REACHER_URL?.replace(/\/$/, "");
@@ -30,18 +48,26 @@ function secretOrUndefined(override?: string): string | undefined {
   return secret || undefined;
 }
 
-function reacherClient() {
-  return createHttpClient({
-    baseURL: baseUrl(),
-    timeout: REQUEST_TIMEOUT_MS,
-    headers: { "Content-Type": "application/json" },
-  });
+function reacherClient(): AxiosInstance {
+  const url = baseUrl();
+  if (!cachedClient || cachedBaseUrl !== url) {
+    cachedBaseUrl = url;
+    cachedClient = createHttpClient({
+      baseURL: url,
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return cachedClient;
 }
 
 function authHeaders(secret?: string): Record<string, string> {
-  // Self-hosted auth uses x-reacher-secret (RCH__HEADER_SECRET), not Bearer.
   if (!secret) return {};
   return { "x-reacher-secret": secret };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isCoreError(value: unknown): value is ReacherCoreError {
@@ -54,12 +80,6 @@ function isCoreError(value: unknown): value is ReacherCoreError {
   );
 }
 
-/**
- * Map Reacher confidence → our wallet/UI status.
- * - safe → valid
- * - invalid → invalid
- * - risky / unknown → unknown (risky still exists but may bounce / catch-all)
- */
 function statusFor(reachable: ReacherReachable): EmailStatus {
   if (reachable === "safe") return "valid";
   if (reachable === "invalid") return "invalid";
@@ -126,14 +146,43 @@ function toResult(
   };
 }
 
-/**
- * POST /v1/check_email — single-address verification against self-hosted
- * Reacher. Queued server-side under throttle; HTTP call still waits for the
- * verdict. Pass `secretOverride` to override REACHER_SECRET for that call.
- */
-export async function verifyEmail(
+function isRetryable(result: ReacherResult, strict: boolean): boolean {
+  if (
+    result.reachable === "safe" ||
+    result.reachable === "invalid" ||
+    result.reachable === "risky"
+  ) {
+    return false;
+  }
+
+  const reasons = result.reason.split(",");
+  if (
+    reasons.some(
+      (r) => r === "http_404" || r === "http_401" || r === "http_403"
+    )
+  ) {
+    return false;
+  }
+
+  if (reasons.includes("smtp_unreachable")) return true;
+  if (reasons.includes("request_failed")) return true;
+  if (reasons.some((r) => r.startsWith("smtp_"))) return true;
+  if (strict) return false;
+  return result.status === "unknown";
+}
+
+function retryDelayMs(attempt: number, result: ReacherResult): number {
+  const proxyFlake = result.reason
+    .split(",")
+    .some((r) => /socks|timeout|unreachable|request_failed/i.test(r));
+  const base = proxyFlake ? RETRY_DELAY_MS * 2 : RETRY_DELAY_MS;
+  return base * attempt;
+}
+
+async function verifyEmailOnce(
   email: string,
-  secretOverride?: string
+  secretOverride?: string,
+  proxy: SocksProxy = nextProxy()
 ): Promise<ReacherResult> {
   try {
     const secret = secretOrUndefined(secretOverride);
@@ -141,17 +190,20 @@ export async function verifyEmail(
 
     const res = await client
       .post<ReacherCheckEmailOutput>(
-        "/v1/check_email",
+        CHECK_PATH,
         {
           to_email: email,
-          proxy: {
-            host: PROXY_HOST,
-            port: PROXY_PORT,
-          },
         },
         { headers: authHeaders(secret) }
       )
-      .catch(() => null);
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : "request_failed";
+        console.error(
+          `reacher check_email failed email=${email} proxy=${proxy.host}:${proxy.port}`,
+          message
+        );
+        return null;
+      });
 
     if (!res || res.status >= 400) {
       return toResult(
@@ -168,25 +220,231 @@ export async function verifyEmail(
   }
 }
 
+type VerifyOptions = {
+  secretOverride?: string;
+  maxAttempts?: number;
+  strictRetry?: boolean;
+};
+
+/** Single address via /v1/check_email with rotating request-body proxy. */
+export async function verifyEmail(
+  email: string,
+  secretOverrideOrOpts?: string | VerifyOptions
+): Promise<ReacherResult> {
+  const opts: VerifyOptions =
+    typeof secretOverrideOrOpts === "string"
+      ? { secretOverride: secretOverrideOrOpts }
+      : secretOverrideOrOpts ?? {};
+
+  const maxAttempts = opts.maxAttempts ?? SINGLE_MAX_ATTEMPTS;
+  const strictRetry = opts.strictRetry ?? false;
+  const secretOverride = opts.secretOverride;
+
+  let proxy = nextProxy();
+  let last = await verifyEmailOnce(email, secretOverride, proxy);
+
+  for (let attempt = 2; attempt <= maxAttempts; attempt++) {
+    if (!isRetryable(last, strictRetry)) return last;
+    await sleep(retryDelayMs(attempt - 1, last));
+    proxy = nextProxyExcept(proxy);
+    last = await verifyEmailOnce(email, secretOverride, proxy);
+  }
+
+  return last;
+}
+
+type BulkJobStatus = {
+  job_id: number;
+  total_records: number;
+  total_processed: number;
+  job_status: "Running" | "Completed";
+};
+
+async function createBulkJob(
+  emails: string[],
+  secret?: string
+): Promise<number | null> {
+  const client = reacherClient();
+  const res = await client
+    .post<{ job_id: number }>(
+      "/v1/bulk",
+      { input: emails },
+      { headers: authHeaders(secret), timeout: 30_000 }
+    )
+    .catch((err: unknown) => {
+      console.error(
+        "reacher bulk create failed",
+        err instanceof Error ? err.message : err
+      );
+      return null;
+    });
+
+  if (!res || res.status >= 400 || typeof res.data?.job_id !== "number") {
+    console.error("reacher bulk create rejected", res?.status, res?.data);
+    return null;
+  }
+  return res.data.job_id;
+}
+
+async function waitForBulkJob(
+  jobId: number,
+  secret?: string
+): Promise<BulkJobStatus | null> {
+  const client = reacherClient();
+  const headers = authHeaders(secret);
+  const deadline = Date.now() + BULK_MAX_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    const res = await client
+      .get<BulkJobStatus>(`/v1/bulk/${jobId}`, {
+        headers,
+        timeout: 30_000,
+      })
+      .catch(() => null);
+
+    if (res && res.status < 400 && res.data?.job_status === "Completed") {
+      return res.data;
+    }
+
+    await sleep(BULK_POLL_MS);
+  }
+
+  console.error(
+    `reacher bulk job ${jobId} timed out after ${BULK_MAX_WAIT_MS}ms`
+  );
+  return null;
+}
+
+async function fetchBulkResults(
+  jobId: number,
+  secret?: string
+): Promise<ReacherCheckEmailOutput[]> {
+  const client = reacherClient();
+  const headers = authHeaders(secret);
+  const out: ReacherCheckEmailOutput[] = [];
+  const limit = 100;
+  let offset = 0;
+
+  for (;;) {
+    const res = await client
+      .get<{ results?: ReacherCheckEmailOutput[] | ReacherCheckEmailOutput }>(
+        `/v1/bulk/${jobId}/results`,
+        { headers, params: { limit, offset }, timeout: 60_000 }
+      )
+      .catch(() => null);
+
+    if (!res || res.status >= 400) break;
+
+    const raw = res.data?.results;
+    const batch = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    if (batch.length === 0) break;
+    out.push(...batch);
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+
+  return out;
+}
+
+/** Fan-out /v1/check_email with app-side proxy rotation (fallback). */
+async function verifyEmailsFanOut(
+  emails: string[],
+  secretOverride?: string
+): Promise<ReacherResult[]> {
+  return mapWithConcurrency(
+    emails,
+    VERIFY_CONCURRENCY,
+    async (email, index) => {
+      if (index > 0 && index < VERIFY_CONCURRENCY) {
+        await sleep(index * 80);
+      }
+      return verifyEmail(email, {
+        secretOverride,
+        maxAttempts: BULK_MAX_ATTEMPTS,
+        strictRetry: true,
+      });
+    }
+  );
+}
+
 /**
- * Verifies many emails via concurrent POST /v1/check_email calls.
- * Prefer this over Reacher's /v1/bulk unless you also run RabbitMQ workers +
- * Postgres storage — bulk jobs need that queue stack.
+ * Preferred path: POST /v1/bulk → workers (each with own SOCKS) → poll → results.
+ * Retries transport unknowns via check_email + rotating proxies.
+ * Falls back to fan-out if bulk create fails.
+ */
+async function verifyEmailsViaBulk(
+  emails: string[],
+  secretOverride?: string
+): Promise<ReacherResult[]> {
+  const secret = secretOrUndefined(secretOverride);
+  const jobId = await createBulkJob(emails, secret);
+  if (jobId == null) {
+    console.warn(
+      "reacher bulk unavailable — falling back to check_email fan-out"
+    );
+    return verifyEmailsFanOut(emails, secretOverride);
+  }
+
+  const status = await waitForBulkJob(jobId, secret);
+  if (!status) {
+    console.warn(`reacher bulk job ${jobId} incomplete — fan-out remaining`);
+    return verifyEmailsFanOut(emails, secretOverride);
+  }
+
+  const rawResults = await fetchBulkResults(jobId, secret);
+  const byEmail = new Map(
+    rawResults.map((r) => [
+      (r.input || "").toLowerCase(),
+      toResult(r, r.input || ""),
+    ])
+  );
+
+  const ordered: ReacherResult[] = [];
+  const toRetry: string[] = [];
+
+  for (const email of emails) {
+    const hit = byEmail.get(email.toLowerCase());
+    if (!hit) {
+      toRetry.push(email);
+      ordered.push(toResult(undefined, email, "request_failed"));
+      continue;
+    }
+    ordered.push(hit);
+    if (isRetryable(hit, true)) toRetry.push(email);
+  }
+
+  if (toRetry.length > 0) {
+    const retried = await verifyEmailsFanOut(toRetry, secretOverride);
+    const retryMap = new Map(retried.map((r) => [r.email.toLowerCase(), r]));
+    for (let i = 0; i < ordered.length; i++) {
+      const again = retryMap.get(ordered[i].email.toLowerCase());
+      if (again) ordered[i] = again;
+    }
+  }
+
+  return ordered;
+}
+
+/**
+ * Bulk verify. Default: /v1/bulk against RabbitMQ workers (one proxy each).
+ * Set REACHER_USE_BULK=false to force concurrent /v1/check_email instead.
  */
 export async function verifyEmailsBulk(
   emails: string[],
   secretOverride?: string
 ): Promise<ReacherResult[]> {
   const runId = Date.now();
-  const results = await mapWithConcurrency(
-    emails,
-    VERIFY_CONCURRENCY,
-    (email) => verifyEmail(email, secretOverride)
-  );
+  const results = USE_BULK
+    ? await verifyEmailsViaBulk(emails, secretOverride)
+    : await verifyEmailsFanOut(emails, secretOverride);
 
   await debugDump(`reacher-verify-${runId}-summary`, {
     submitted: emails.length,
+    mode: USE_BULK ? "bulk" : "fanout",
     concurrency: VERIFY_CONCURRENCY,
+    maxAttempts: BULK_MAX_ATTEMPTS,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    proxyPoolSize: PROXY_POOL.length,
     valid: results.filter((r) => r.status === "valid").length,
     invalid: results.filter((r) => r.status === "invalid").length,
     unknown: results.filter((r) => r.status === "unknown").length,

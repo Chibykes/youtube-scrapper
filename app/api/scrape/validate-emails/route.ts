@@ -8,7 +8,8 @@ import {
 } from "@/lib/wallet";
 import { TOOL_COSTS, CURRENCY } from "@/lib/pricing";
 
-export const maxDuration = 60;
+// UI sends chunks (~25); still allow headroom for slow SMTP + 2 attempts.
+export const maxDuration = 180;
 
 const MAX_CANDIDATES = 500;
 
