@@ -16,7 +16,7 @@ x-reacher-common-env: &reacher-common-env
   RCH__WORKER__ENABLE: "true"
   RCH__WORKER__RABBITMQ__URL: amqp://reacher:reacher@reacher-rabbitmq:5672
   # Parallel SMTP jobs on THIS worker's single proxy.
-  RCH__WORKER__RABBITMQ__CONCURRENCY: "2"
+  RCH__WORKER__RABBITMQ__CONCURRENCY: "3"
   RCH__STORAGE__POSTGRES__DB_URL: postgres://reacher:reacher@reacher-postgres:5432/reacher_db
   RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE: ${RCH__THROTTLE__MAX_REQUESTS_PER_MINUTE:-120}
   RCH__THROTTLE__MAX_REQUESTS_PER_DAY: ${RCH__THROTTLE__MAX_REQUESTS_PER_DAY:-10000}
@@ -86,32 +86,32 @@ services:
       start_period: 40s
 
   # Dedicated consumers — one SOCKS proxy each (from PROXY_POOL).
-  # reacher-worker-2:
-  #   image: reacherhq/backend:v0.11.9
-  #   platform: linux/amd64
-  #   restart: unless-stopped
-  #   env_file:
-  #     - path: .env.local
-  #       required: false
-  #     - path: .env
-  #       required: false
-  #   environment:
-  #     <<: *reacher-common-env
-  #     RUST_LOG: reacher=debug
-  #     RCH__BACKEND_NAME: youtube-scrapper-reacher-w2
-  #     RCH__PROXY__HOST: "172.81.111.156"
-  #     RCH__PROXY__PORT: "10001"
-  #   depends_on:
-  #     reacher-rabbitmq:
-  #       condition: service_healthy
-  #     reacher-postgres:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
-  #     start_period: 40s
+  reacher-worker-2:
+    image: reacherhq/backend:v0.11.9
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        required: false
+      - path: .env
+        required: false
+    environment:
+      <<: *reacher-common-env
+      RUST_LOG: reacher=debug
+      RCH__BACKEND_NAME: youtube-scrapper-reacher-w2
+      RCH__PROXY__HOST: "172.81.111.156"
+      RCH__PROXY__PORT: "10001"
+    depends_on:
+      reacher-rabbitmq:
+        condition: service_healthy
+      reacher-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w 2 127.0.0.1 8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   reacher-worker-3:
     image: reacherhq/backend:v0.11.9

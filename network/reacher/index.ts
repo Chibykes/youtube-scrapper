@@ -20,8 +20,7 @@ import type { AxiosInstance } from "axios";
 
 // Fan-out fallback / single-check concurrency (~2 jobs per SOCKS in PROXY_POOL).
 const VERIFY_CONCURRENCY =
-  Number(process.env.REACHER_VERIFY_CONCURRENCY) ||
-  Math.min(12, Math.max(4, PROXY_POOL.length * 2));
+  Number(process.env.REACHER_VERIFY_CONCURRENCY) || 15;
 const REQUEST_TIMEOUT_MS =
   Number(process.env.REACHER_REQUEST_TIMEOUT_MS) || 35_000;
 const SINGLE_MAX_ATTEMPTS = Number(process.env.REACHER_MAX_ATTEMPTS) || 3;
@@ -194,10 +193,6 @@ async function verifyEmailOnce(
         CHECK_PATH,
         {
           to_email: email,
-          proxy: {
-            host: proxy.host,
-            port: proxy.port,
-          },
         },
         { headers: authHeaders(secret) }
       )
@@ -314,7 +309,9 @@ async function waitForBulkJob(
     await sleep(BULK_POLL_MS);
   }
 
-  console.error(`reacher bulk job ${jobId} timed out after ${BULK_MAX_WAIT_MS}ms`);
+  console.error(
+    `reacher bulk job ${jobId} timed out after ${BULK_MAX_WAIT_MS}ms`
+  );
   return null;
 }
 
@@ -354,16 +351,20 @@ async function verifyEmailsFanOut(
   emails: string[],
   secretOverride?: string
 ): Promise<ReacherResult[]> {
-  return mapWithConcurrency(emails, VERIFY_CONCURRENCY, async (email, index) => {
-    if (index > 0 && index < VERIFY_CONCURRENCY) {
-      await sleep(index * 80);
+  return mapWithConcurrency(
+    emails,
+    VERIFY_CONCURRENCY,
+    async (email, index) => {
+      if (index > 0 && index < VERIFY_CONCURRENCY) {
+        await sleep(index * 80);
+      }
+      return verifyEmail(email, {
+        secretOverride,
+        maxAttempts: BULK_MAX_ATTEMPTS,
+        strictRetry: true,
+      });
     }
-    return verifyEmail(email, {
-      secretOverride,
-      maxAttempts: BULK_MAX_ATTEMPTS,
-      strictRetry: true,
-    });
-  });
+  );
 }
 
 /**
@@ -378,7 +379,9 @@ async function verifyEmailsViaBulk(
   const secret = secretOrUndefined(secretOverride);
   const jobId = await createBulkJob(emails, secret);
   if (jobId == null) {
-    console.warn("reacher bulk unavailable — falling back to check_email fan-out");
+    console.warn(
+      "reacher bulk unavailable — falling back to check_email fan-out"
+    );
     return verifyEmailsFanOut(emails, secretOverride);
   }
 
@@ -412,9 +415,7 @@ async function verifyEmailsViaBulk(
 
   if (toRetry.length > 0) {
     const retried = await verifyEmailsFanOut(toRetry, secretOverride);
-    const retryMap = new Map(
-      retried.map((r) => [r.email.toLowerCase(), r])
-    );
+    const retryMap = new Map(retried.map((r) => [r.email.toLowerCase(), r]));
     for (let i = 0; i < ordered.length; i++) {
       const again = retryMap.get(ordered[i].email.toLowerCase());
       if (again) ordered[i] = again;
