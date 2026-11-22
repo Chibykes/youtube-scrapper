@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start -p 2233",
     "lint": "eslint",
-    "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down"
+    "docker:up": "docker compose -f docker-compose.local.yml up -d --build",
+    "docker:down": "docker compose -f docker-compose.local.yml down"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.8.0",
