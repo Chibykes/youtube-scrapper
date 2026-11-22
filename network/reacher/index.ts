@@ -10,7 +10,11 @@ import type {
   ReacherResult,
   ReacherSmtpDetails,
 } from "@/network/reacher/types";
-import { PROXY_HOST, PROXY_PORT } from "@/network/reacher/constants";
+import {
+  nextProxy,
+  nextProxyExcept,
+  type SocksProxy,
+} from "@/network/reacher/constants";
 import type { AxiosInstance } from "axios";
 
 // One SOCKS5 proxy collapses under high parallel Gmail SMTP (Socks5 early eof
@@ -179,10 +183,12 @@ function retryDelayMs(attempt: number, result: ReacherResult): number {
 
 /**
  * Single attempt against self-hosted Reacher (/v1/check_email).
+ * `proxy` is sent in the body so SMTP uses that SOCKS5 for this check only.
  */
 async function verifyEmailOnce(
   email: string,
-  secretOverride?: string
+  secretOverride?: string,
+  proxy: SocksProxy = nextProxy()
 ): Promise<ReacherResult> {
   try {
     const secret = secretOrUndefined(secretOverride);
@@ -194,15 +200,18 @@ async function verifyEmailOnce(
         {
           to_email: email,
           proxy: {
-            host: PROXY_HOST,
-            port: PROXY_PORT,
+            host: proxy.host,
+            port: proxy.port,
           },
         },
         { headers: authHeaders(secret) }
       )
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : "request_failed";
-        console.error(`reacher check_email failed email=${email}`, message);
+        console.error(
+          `reacher check_email failed email=${email} proxy=${proxy.host}:${proxy.port}`,
+          message
+        );
         return null;
       });
 
@@ -223,18 +232,21 @@ async function verifyEmailOnce(
 
 /**
  * POST check_email — retries transient unknown / smtp failures up to MAX_ATTEMPTS.
+ * Each attempt uses the next SOCKS5 in PROXY_POOL (different proxy on retry).
  * Pass `secretOverride` to override REACHER_SECRET for that call.
  */
 export async function verifyEmail(
   email: string,
   secretOverride?: string
 ): Promise<ReacherResult> {
-  let last = await verifyEmailOnce(email, secretOverride);
+  let proxy = nextProxy();
+  let last = await verifyEmailOnce(email, secretOverride, proxy);
 
   for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
     if (!isRetryable(last)) return last;
     await sleep(retryDelayMs(attempt - 1, last));
-    last = await verifyEmailOnce(email, secretOverride);
+    proxy = nextProxyExcept(proxy);
+    last = await verifyEmailOnce(email, secretOverride, proxy);
   }
 
   return last;
